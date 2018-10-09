@@ -3,7 +3,7 @@ taken from https://github.com/ZiJianZhao/SeqGAN-PyTorch
 """
 
 import torch
-import toch.nn as nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 class Discriminator(nn.Module):
@@ -23,7 +23,7 @@ class Discriminator(nn.Module):
     def init_parameters(self):
         for param in self.parameters():
             # note to self, look up why this range is chosen
-            param.data.uniform(-0.05, 0.05)
+            param.data.uniform_(-0.05, 0.05)
 
     def forward(self, x):
         """
