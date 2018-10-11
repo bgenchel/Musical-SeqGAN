@@ -17,10 +17,14 @@ class Generator(nn.Module):
         self.num_layers = 1
 
         self.embedder = nn.Embedding(vocab_size, embed_dim)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim)
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, vocab_size)
         self.softmax = nn.LogSoftmax()
         self.init_params()
+
+        # import pdb
+        # pdb.set_trace()
+        return
 
     def init_params(self):
         for param in self.parameters():
@@ -38,7 +42,7 @@ class Generator(nn.Module):
         embedded = self.embedder(x)
         h0, c0 = self.init_hidden_and_cell(x.size(0))
         lstm_out, _ = self.lstm(embedded, (h0, c0))
-        softmax = self.softmax(self.fc(lstm_out.view(-1, self.hidden_dim)))
+        softmax = self.softmax(self.fc(lstm_out.contiguous().view(-1, self.hidden_dim)))
         return softmax
 
     def single_step(self, x, hidden, cell):

@@ -72,6 +72,8 @@ def train_epoch(model, data_iter, loss_fn, optimizer):
         if args.cuda:
             data_var, target_var = data_var.cuda(), target_var.cuda()
         target_var = target_var.contiguous().view(-1) # serialize the target into a contiguous vector ?
+        # import pdb
+        # pdb.set_trace()
         pred = model.forward(data_var)
         loss = loss_fn(pred, target_var)
         total_loss += loss.item()
@@ -142,6 +144,8 @@ def main():
     generate_samples(target_lstm, BATCH_SIZE, GENERATED_NUM, POSITIVE_FILE)
     
     # Load data from file
+    # import pdb
+    # pdb.set_trace()
     gen_data_iter = GenDataIter(POSITIVE_FILE, BATCH_SIZE)
 
     # Pretrain Generator using MLE

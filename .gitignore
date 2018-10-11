@@ -1,3 +1,4 @@
 env/
 ./activate
-
+*.pyc
+__pycache__
