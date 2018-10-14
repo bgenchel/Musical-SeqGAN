@@ -2,6 +2,7 @@
 taken from https://github.com/ZiJianZhao/SeqGAN-PyTorch
 """
 import argparse
+import math
 import numpy as np
 import os
 import random
@@ -20,7 +21,8 @@ from target_lstm import TargetLSTM
 from data_iter import GenDataIter, DisDataIter
 
 parser = argparse.ArgumentParser(description="Training Parameter")
-parser.add_argument('--cuda', action='store', default=None, type=int, help="the Cuda device to use")
+parser.add_argument('--no_cuda', action='store_true', 
+                    help="don't use CUDA, even if it is available.")
 args = parser.parse_args()
 print(args)
 
@@ -33,11 +35,14 @@ POSITIVE_FILE = 'real.data' # not sure what is meant by 'positive'
 NEGATIVE_FILE = 'gene.data' # not sure what is meant by 'negative'
 EVAL_FILE = 'eval.data'
 VOCAB_SIZE = 5000 # ??
-PRE_EPOCH_NUM = 120 # ??
+# PRE_EPOCH_NUM = 120 # ??
+PRE_EPOCH_NUM = 1 # ??
 
-if torch.cuda.is_available() and (args.cuda is not None) and (args.cuda >=0):
-   torch.cuda.set_device(args.cuda) 
-   args.cuda = True # ??? 
+# if torch.cuda.is_available() and (args.cuda is not None) and (args.cuda >= 0):
+args.cuda = False
+if torch.cuda.is_available() and (not args.no_cuda):
+    torch.cuda.set_device(0) # just default it for now, maybe change later
+    args.cuda = True
 
 # Generator Params
 gen_embed_dim = 32
@@ -49,9 +54,11 @@ dscr_embed_dim = 64
 dscr_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
 dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20] # didn't know there were this many layers
 dscr_dropout = 0.75
-dscr_num_classes = 2 # why not just have one class that indicates probability of being real?
+# why not just have one class that indicates probability of being real with a sigmoid
+# output?
+dscr_num_classes = 2 # why not just have one class that indicates probability of bein
 
-def generate_samples(model, num_samples, batch_size, output_file):
+def generate_samples(model, batch_size, num_samples, output_file):
     samples = []
     for _ in range(int(num_samples / batch_size)):
         # why cpu?
@@ -66,14 +73,12 @@ def generate_samples(model, num_samples, batch_size, output_file):
 def train_epoch(model, data_iter, loss_fn, optimizer):
     total_loss = 0.0
     total_words = 0.0 # ???
-    for (data, target) in tqdm(data_iter, desc=' - Training'):
+    for (data, target) in tqdm(data_iter, desc=' - Training', leave=False):
         data_var = Variable(data)
         target_var = Variable(target)
         if args.cuda:
             data_var, target_var = data_var.cuda(), target_var.cuda()
         target_var = target_var.contiguous().view(-1) # serialize the target into a contiguous vector ?
-        # import pdb
-        # pdb.set_trace()
         pred = model.forward(data_var)
         loss = loss_fn(pred, target_var)
         total_loss += loss.item()
@@ -87,16 +92,17 @@ def train_epoch(model, data_iter, loss_fn, optimizer):
 def eval_epoch(model, data_iter, loss_fn):
     total_loss = 0.0
     total_words = 0.0
-    for (data, target) in tqdm(data_iter, desc= " - Evaluation"):
-        data_var = Variable(data, volatile=True) # ??? why declare volatile also what is volatile.
-        target_var = Variable(target, volatile=True)
-        if args.cuda:
-            data_var, target_var = data_var.cuda(), target_var.cuda()
-        target_var = target_var.contiguous().view(-1) # serialize the target into a contiguous vector ?
-        pred = model.forward(data_var)
-        loss = loss_fn(pred, target_var)
-        total_loss += loss.item()
-        total_words += data_var.size(0) * data_var.size(1)
+    with torch.no_grad():
+        for (data, target) in tqdm(data_iter, desc= " - Evaluation", leave=False):
+            data_var = Variable(data)
+            target_var = Variable(target)
+            if args.cuda:
+                data_var, target_var = data_var.cuda(), target_var.cuda()
+            target_var = target_var.contiguous().view(-1) # serialize the target into a contiguous vector ?
+            pred = model.forward(data_var)
+            loss = loss_fn(pred, target_var)
+            total_loss += loss.item()
+            total_words += data_var.size(0) * data_var.size(1)
     data_iter.reset()
     return math.exp(total_loss / total_words) # weird measure ... to return
 
@@ -119,7 +125,7 @@ class GANLoss(nn.Module):
         one_hot = torch.zeros((N, C))
         one_hot.scatter_(1, target.data.view((-1, 1)), 1) # write 1 into all positions specified by target in the 1st dim
         one_hot = Variable(one_hot.type(torch.ByteTensor)) # sets the type, so it can be used in masked_select
-        if prob.is_cuda():
+        if prob.is_cuda:
             one_hot = one_hot.cuda()
         loss = torch.masked_select(prob, one_hot)
         loss = loss * reward # why does a greater reward = greater loss? This should be opposite the case.
@@ -139,21 +145,20 @@ def main():
         generator = generator.cuda()
         discriminator = discriminator.cuda()
         target_lstm = target_lstm.cuda()
+
     # Generate toy data using target lstm
     print('Generating data ...')
     generate_samples(target_lstm, BATCH_SIZE, GENERATED_NUM, POSITIVE_FILE)
     
     # Load data from file
-    # import pdb
-    # pdb.set_trace()
     gen_data_iter = GenDataIter(POSITIVE_FILE, BATCH_SIZE)
 
-    # Pretrain Generator using MLE
+    Pretrain Generator using MLE
+    print('Pretrain Generator with MLE ...')
     gen_criterion = nn.NLLLoss(size_average=False)
     gen_optimizer = optim.Adam(generator.parameters())
     if args.cuda:
         gen_criterion = gen_criterion.cuda()
-    print('Pretrain with MLE ...')
     for epoch in range(PRE_EPOCH_NUM):
         loss = train_epoch(generator, gen_data_iter, gen_criterion, gen_optimizer)
         print('Epoch [%d] Model Loss: %f'% (epoch, loss))
@@ -162,22 +167,27 @@ def main():
         loss = eval_epoch(target_lstm, eval_iter, gen_criterion)
         print('Epoch [%d] True Loss: %f' % (epoch, loss))
 
-    # Pretrain Discriminator
+    Pretrain Discriminator
+    print('Pretrain Discriminator ...')
+    data_gens = 5
+    epochs = 3
     dis_criterion = nn.NLLLoss(size_average=False)
     dis_optimizer = optim.Adam(discriminator.parameters())
     if args.cuda:
         dis_criterion = dis_criterion.cuda()
-    print('Pretrain Dsicriminator ...')
-    for epoch in range(5):
+    for i in range(data_gens):
         generate_samples(generator, BATCH_SIZE, GENERATED_NUM, NEGATIVE_FILE)
         dis_data_iter = DisDataIter(POSITIVE_FILE, NEGATIVE_FILE, BATCH_SIZE)
-        for _ in range(3):
+        for j in range(epochs):
             loss = train_epoch(discriminator, dis_data_iter, dis_criterion, dis_optimizer)
-            print('Epoch [%d], loss: %f' % (epoch, loss))
+            print('Data Gen [%d], Epoch [%d], Loss: %f' % (i, j, loss))
+
     # Adversarial Training 
-    rollout = Rollout(generator, 0.8)
-    print('#####################################################')
+    print('#'*100)
     print('Start Adeversatial Training...\n')
+
+    rollout = Rollout(generator, 0.8)
+
     gen_gan_loss = GANLoss()
     gen_gan_optm = optim.Adam(generator.parameters())
     if args.cuda:
@@ -185,30 +195,32 @@ def main():
     gen_criterion = nn.NLLLoss(size_average=False)
     if args.cuda:
         gen_criterion = gen_criterion.cuda()
+
     dis_criterion = nn.NLLLoss(size_average=False)
     dis_optimizer = optim.Adam(discriminator.parameters())
     if args.cuda:
         dis_criterion = dis_criterion.cuda()
+
     for total_batch in range(TOTAL_BATCH):
         ## Train the generator for one step
-        for it in range(1):
-            samples = generator.sample(BATCH_SIZE, gen_seq_len)
-            # construct the input to the genrator, add zeros before samples and delete the last column
-            zeros = torch.zeros((BATCH_SIZE, 1)).type(torch.LongTensor)
-            if samples.is_cuda:
-                zeros = zeros.cuda()
-            inputs = Variable(torch.cat([zeros, samples.data], dim = 1)[:, :-1].contiguous())
-            targets = Variable(samples.data).contiguous().view((-1,))
-            # calculate the reward
-            rewards = rollout.get_reward(samples, 16, discriminator)
-            rewards = Variable(torch.Tensor(rewards))
-            if args.cuda:
-                rewards = torch.exp(rewards.cuda()).contiguous().view((-1,))
-            prob = generator.forward(inputs)
-            loss = gen_gan_loss(prob, targets, rewards)
-            gen_gan_optm.zero_grad()
-            loss.backward()
-            gen_gan_optmsm.step()
+        samples = generator.sample(BATCH_SIZE, gen_seq_len)
+        # construct the input to the genrator, add zeros before samples and delete the last column
+        zeros = torch.zeros((BATCH_SIZE, 1)).type(torch.LongTensor)
+        if samples.is_cuda:
+            zeros = zeros.cuda()
+        inputs = Variable(torch.cat([zeros, samples.data], dim=1)[:, :-1].contiguous())
+        targets = Variable(samples.data).contiguous().view((-1,))
+        # calculate the reward
+        rewards = rollout.get_reward(samples, 16, discriminator)
+        rewards = Variable(torch.Tensor(rewards))
+        rewards = torch.exp(rewards).contiguous().view((-1,))
+        if args.cuda:
+            rewards = rewards.cuda()
+        prob = generator.forward(inputs)
+        loss = gen_gan_loss(prob, targets, rewards)
+        gen_gan_optm.zero_grad()
+        loss.backward()
+        gen_gan_optm.step()
 
         if total_batch % 1 == 0 or total_batch == TOTAL_BATCH - 1:
             generate_samples(generator, BATCH_SIZE, GENERATED_NUM, EVAL_FILE)

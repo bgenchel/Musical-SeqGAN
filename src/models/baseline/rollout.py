@@ -28,7 +28,7 @@ class Rollout(object):
                 # not really sure what this line means actually ...
                 samples = self.my_model.sample(batch_size, seq_len, data_subseqs)
                 pred = discriminator(samples)
-                pred.cpu().data_subseqs[:, 1].numpy() # why cpu?
+                pred = pred.cpu().data[:, 1].numpy() # why cpu?
                 if i == 0:
                     rewards.append(pred)
                 else:
