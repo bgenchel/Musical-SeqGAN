@@ -8,6 +8,7 @@ import tqdm
 
 import numpy as np
 import torch
+
 class GenDataIter(object):
     """ Toy data iter to load digits"""
     def __init__(self, data_file, batch_size):
@@ -58,15 +59,15 @@ class DisDataIter(object):
     def __init__(self, real_data_file, fake_data_file, batch_size):
         super(DisDataIter, self).__init__()
         self.batch_size = batch_size
-        real_data_lis = self.read_file(real_data_file)
-        fake_data_lis = self.read_file(fake_data_file)
-        self.data = real_data_lis + fake_data_lis
-        self.labels = [1 for _ in range(len(real_data_lis))] +\
-                        [0 for _ in range(len(fake_data_lis))]
-        self.pairs = zip(self.data, self.labels)
-        self.data_num = len(self.pairs)
-        self.indices = range(self.data_num)
-        self.num_batches = int(math.ceil(float(self.data_num)/self.batch_size))
+
+        real_data = self.read_file(real_data_file)
+        fake_data = self.read_file(fake_data_file)
+        self.data = real_data + fake_data
+        self.labels = [1]*len(real_data) + [0]*len(fake_data)
+        self.pairs = list(zip(self.data, self.labels))
+        self.num_data_pts = len(self.pairs)
+        # self.indices = range(self.data_num)
+        self.num_batches = int(math.ceil(float(self.num_data_pts)/self.batch_size))
         self.idx = 0
 
     def __len__(self):
@@ -83,16 +84,14 @@ class DisDataIter(object):
         random.shuffle(self.pairs)
 
     def next(self):
-        if self.idx >= self.data_num:
+        if self.idx >= self.num_data_pts:
             raise StopIteration
-        index = self.indices[self.idx:self.idx+self.batch_size]
-        pairs = [self.pairs[i] for i in index]
-        data = [p[0] for p in pairs]
-        label = [p[1] for p in pairs]
+        pairs = [self.pairs[i] for i in range(self.idx, self.idx + self.batch_size)]
+        data, labels = zip(*pairs)
         data = torch.LongTensor(np.asarray(data, dtype='int64'))
-        label = torch.LongTensor(np.asarray(label, dtype='int64'))
+        labels = torch.LongTensor(np.asarray(labels, dtype='int64'))
         self.idx += self.batch_size
-        return data, label
+        return data, labels
 
     def read_file(self, data_file):
         with open(data_file, 'r') as f:

@@ -19,11 +19,9 @@ class Generator(nn.Module):
         self.embedder = nn.Embedding(vocab_size, embed_dim)
         self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, vocab_size)
-        self.softmax = nn.LogSoftmax()
+        self.softmax = nn.LogSoftmax(dim=-1)
         self.init_params()
 
-        # import pdb
-        # pdb.set_trace()
         return
 
     def init_params(self):
@@ -42,8 +40,8 @@ class Generator(nn.Module):
         embedded = self.embedder(x)
         h0, c0 = self.init_hidden_and_cell(x.size(0))
         lstm_out, _ = self.lstm(embedded, (h0, c0))
-        softmax = self.softmax(self.fc(lstm_out.contiguous().view(-1, self.hidden_dim)))
-        return softmax
+        pred = self.softmax(self.fc(lstm_out.contiguous().view(-1, self.hidden_dim)))
+        return pred
 
     def single_step(self, x, hidden, cell):
         """
@@ -53,8 +51,9 @@ class Generator(nn.Module):
             cell: (1, batch_size, hidden_dim), lstm cell state
         """
         embedded = self.embedder(x)
-        output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
-        pred = F.softmax(self.fc(lstm_out.view(-1, self.hidden_dim)))
+        lstm_out, (hidden, cell) = self.lstm(embedded, (hidden, cell))
+        fc_out = self.fc(lstm_out.view(-1, self.hidden_dim))
+        pred = F.softmax(fc_out, dim=-1)
         return pred, hidden, cell
 
     def sample(self, batch_size, seq_len, seed=None):
@@ -80,7 +79,7 @@ class Generator(nn.Module):
             if self.use_cuda:
                 inpt = inpt.cuda()
             for i in range(seq_len):
-                output, hidden, cell = self.step(inpt, hidden, cell)
+                output, hidden, cell = self.single_step(inpt, hidden, cell)
                 inpt = output.multinomial(1) # sample the softmax distribution once
                 samples.append(inpt)
         else:
@@ -89,11 +88,11 @@ class Generator(nn.Module):
             samples.extend(seed_symbols)
             # run through the seed to set the network state
             for i in range(seed_len):
-                output, hidden, cell = self.step(seed_symbols[i], hidden, cell)
+                output, hidden, cell = self.single_step(seed_symbols[i], hidden, cell)
             inpt = output.multinomial(1)
             # actual sampling occurs here
             for i in range(seed_len, seq_len):
                 samples.append(inpt)
-                output, hidden, cell = self.step(inpt, hidden, cell)
+                output, hidden, cell = self.single_step(inpt, hidden, cell)
                 inpt = output.multinomial(1)
         return torch.cat(samples, dim=1)
