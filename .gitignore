@@ -1,3 +1,4 @@
 ./activate
 *.pyc
 __pycache__
+*.pptx
