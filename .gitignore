@@ -2,3 +2,7 @@
 *.pyc
 __pycache__
 *.pptx
+.DS_Store
+# ignore the actual data not the 
+# data code
+/data
