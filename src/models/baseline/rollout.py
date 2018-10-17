@@ -24,7 +24,7 @@ class Rollout(object):
         batch_size, seq_len = data.size()
         for i in range(rollout_num):
             for l in range(1, seq_len + 1):
-                data_subseqs = data[:, :]
+                data_subseqs = data[:, :l]
                 # not really sure what this line means actually ...
                 samples = self.my_model.sample(batch_size, seq_len, data_subseqs)
                 pred = discriminator(samples)
