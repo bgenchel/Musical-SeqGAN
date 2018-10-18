@@ -1,9 +1,14 @@
-from torch.utils.data.dataset import Dataset
-import torch
 import numpy as np
 import os
 import os.path as op
 import pickle
+import pretty_midi as pm
+import torch
+from torch.utils.data.dataset import Dataset
+
+# MIDI Range Stuff
+Ab0 = 20 # would start with A0, but want 0 to be below the range of possible numbers
+C8 = 108
 
 NOTE_TICK_LENGTH = 37
 HARMONY_ROOT_LENGTH = 12
@@ -14,7 +19,7 @@ class MidiTicksDataset(Dataset):
     This defines the loading and organizing of parsed MusicXML data into a MIDI tick database.
     """
 
-    def __init__(self, load_dir, measures_per_seq=8, hop_size=4, target_type="full_sequence"):
+    def __init__(self, load_dir, measures_per_seq=8, hop_size=4, target_type="full_sequence", **kwargs):
         """
         Loads the MIDI tick information, groups into sequences based on measures.
         :param load_dir: location of parsed MusicXML data
@@ -23,6 +28,7 @@ class MidiTicksDataset(Dataset):
         :param target_type: if "full_sequence" the target is the full input sequence, if "next_step" the target is
                 the last tick of the input sequence
         """
+        super(MidiTicksDataset, self).__init__(**kwargs)
 
         if not op.exists(load_dir):
             raise Exception("Data directory does not exist.")
@@ -122,3 +128,96 @@ class MidiTicksDataset(Dataset):
             ticks.append(tick)
 
         return ticks
+
+
+class NottinghamDataset(Dataset):
+    """
+    Loads the nottingham dataset, in midi format. From the original paper:
+    
+    For music composition, we use the Nottingham dataset as our training data, 
+    which is a collection of 695 music of folk tunes in midi file format. We 
+    study the solo track of each music. In our work, we use 88 numbers to 
+    represent 88 pitches, which correspond to the 88 keys on the piano. With 
+    the pitch sampling for every 0.4s, we transform the midi files into 
+    sequences of numbers from 1 to 88 with the length 32.
+    """
+
+    def __init__(self, load_dir, period=0.4, seq_len=32, data_format="nums", train_type="full_sequence", **kwargs):
+        """
+        Loads the MIDI tick information, converts into format based on original paper
+        designation.
+        :param load_dir: location of nottingham midi dataset
+        :param period: how much time 1 tick represents in the MIDI
+        :param seq_len: how many ticks in a sequence/data point
+        :param target_type: if "full_sequence", the target and sequence are both the full input sequence, 
+            if "next_step", target will be the next step and sequence will be the proceeding *seq_len* steps.
+        :param data_format: if "nums", then the data will be a list of note numbers from 0 to 88. if "ticks", then the 
+            data will be a sequence of one-hot size 88 vectors.
+        """
+        super(NottinghamDataset, self).__init__(**kwargs)
+
+        assert data_format in ("ticks", "nums")
+        assert train_type in ("full_sequence", "next_step")
+        if not op.exists(load_dir):
+            raise Exception("Data directory does not exist.")
+
+        self.seq_len = seq_len
+        self.data_format = data_format
+
+        self.seqs = []
+        self.targets = []
+
+        for fname in os.listdir(load_dir):
+            if op.splitext(fname)[1] != ".mid":
+                print("Skipping %s..." % fname)
+                continue
+            song = pm.PrettyMIDI(op.join(load_dir, fname))
+            melody = song.instruments[0]
+            piano_roll = melody.get_piano_roll(fs=(1/period))
+            piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
+            if train_type == "full_sequence":
+                self._full_sequence_load(piano_roll)
+            elif train_type == "next_step":
+                self._next_step_load(piano_roll)
+
+    def _full_sequence_load(self, piano_roll):
+        # pad for an even split
+        padding = np.zeros((piano_roll.shape[0], self.seq_len - piano_roll.shape[1]%self.seq_len))
+        piano_roll = np.concatenate((piano_roll, padding), axis=1)
+        if self.data_format == "nums":
+            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
+            splits = np.split(piano_roll, piano_roll.shape[0] // self.seq_len, axis=0) 
+        else:
+            splits = np.split(piano_roll, piano_roll.shape[1] // self.seq_len, axis=1) 
+
+        self.seqs.extend(splits)
+        self.targets.extend(splits)
+
+    def _next_step_load(self, piano_roll):
+        # pad to predict the first few tokens
+        padding = np.zeros((piano_roll.shape[0], self.seq_len))
+        piano_roll = np.concatenate((padding, piano_roll), axis=1)
+        if self.data_format == "nums":
+            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axi
+            for i in range(piano_roll.shape[0] - self.seq_len):
+                self.seqs.append(piano_roll[i:(i + self.seq_len)])
+                self.targets.append(piano_roll[i + self.seq_len])
+        else:
+            for i in range(piano_roll.shape[1] - self.seq_len):
+                self.seqs.append(piano_roll[:, i:(i + self.seq_len)])
+                self.targets.append(piano_roll[:, i + self.seq_len])
+
+    def __len__(self):
+        """
+        The length of the dataset.
+        :return: the number of sequences in the dataset
+        """
+        return len(self.seqs)
+
+    def __getitem__(self, index):
+        """
+        A sequence and its target.
+        :param index: the index of the sequence and target to fetch
+        :return: the sequence and target at the specified index
+        """
+        return torch.from_numpy(np.array(self.seqs[index])), torch.from_numpy(np.array(self.targets[index]))
