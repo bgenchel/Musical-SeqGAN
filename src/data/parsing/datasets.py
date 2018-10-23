@@ -144,8 +144,7 @@ class NottinghamDataset(Dataset):
 
     def __init__(self, load_dir, period=0.4, seq_len=32, data_format="nums", train_type="full_sequence", **kwargs):
         """
-        Loads the MIDI tick information, converts into format based on original paper
-        designation.
+        Loads the MIDI tick information, converts into format based on original paper designation.
         :param load_dir: location of nottingham midi dataset
         :param period: how much time 1 tick represents in the MIDI
         :param seq_len: how many ticks in a sequence/data point
