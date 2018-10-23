@@ -40,7 +40,8 @@ class Generator(nn.Module):
         embedded = self.embedder(x)
         h0, c0 = self.init_hidden_and_cell(x.size(0))
         lstm_out, _ = self.lstm(embedded, (h0, c0))
-        pred = self.softmax(self.fc(lstm_out.contiguous().view(-1, self.hidden_dim)))
+        # pred = self.softmax(self.fc(lstm_out.contiguous()(-1, self.hidden_dim)))
+        pred = self.softmax(self.fc(lstm_out.contiguous()))
         return pred
 
     def single_step(self, x, hidden, cell):
@@ -79,6 +80,8 @@ class Generator(nn.Module):
             if self.use_cuda:
                 inpt = inpt.cuda()
             for i in range(seq_len):
+                # import pdb
+                # pdb.set_trace()
                 output, hidden, cell = self.single_step(inpt, hidden, cell)
                 inpt = output.multinomial(1) # sample the softmax distribution once
                 samples.append(inpt)

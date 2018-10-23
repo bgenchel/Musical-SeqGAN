@@ -169,7 +169,7 @@ class NottinghamDataset(Dataset):
 
         for fname in os.listdir(load_dir):
             if op.splitext(fname)[1] != ".mid":
-                print("Skipping %s..." % fname)
+                # print("Skipping %s..." % fname)
                 continue
             song = pm.PrettyMIDI(op.join(load_dir, fname))
             melody = song.instruments[0]
