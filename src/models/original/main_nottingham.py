@@ -31,8 +31,8 @@ from parsing.datasets import NottinghamDataset
 parser = argparse.ArgumentParser(description="Training Parameter")
 parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"), 
                     default="full_sequence", help="how to train the network")
-parser.add_argument('-glr', '--gen_learning_rate', default=1e-3, help="learning rate for generator")
-parser.add_argument('-dlr', '--dscr_learning_rate', default=1e-3, help="learning rate for discriminator")
+parser.add_argument('-glr', '--gen_learning_rate', default=1e-2, type=float, help="learning rate for generator")
+parser.add_argument('-dlr', '--dscr_learning_rate', default=1e-3, type=float, help="learning rate for discriminator")
 parser.add_argument('-nc', '--no_cuda', action='store_true', 
                     help="don't use CUDA, even if it is available.")
 args = parser.parse_args()
@@ -41,7 +41,6 @@ args.cuda = False
 if torch.cuda.is_available() and (not args.no_cuda):
     torch.cuda.set_device(0) # just default it for now, maybe change later
     args.cuda = True
-
 
 # Basic Training Paramters
 SEED = 88 # seems like quite a long seed, how was this chosen?

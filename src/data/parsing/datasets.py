@@ -162,6 +162,7 @@ class NottinghamDataset(Dataset):
 
         self.seq_len = seq_len
         self.data_format = data_format
+        self.train_type = train_type
 
         self.seqs = []
         self.targets = []
@@ -174,37 +175,21 @@ class NottinghamDataset(Dataset):
             melody = song.instruments[0]
             piano_roll = melody.get_piano_roll(fs=(1/period))
             piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
-            if train_type == "full_sequence":
-                self._full_sequence_load(piano_roll)
-            elif train_type == "next_step":
-                self._next_step_load(piano_roll)
+            self._sequence_load(piano_roll)
 
-    def _full_sequence_load(self, piano_roll):
+    def _sequence_load(self, piano_roll):
         # pad for an even split
-        padding = np.zeros((piano_roll.shape[0], self.seq_len - piano_roll.shape[1]%self.seq_len))
-        piano_roll = np.concatenate((piano_roll, padding), axis=1)
-        if self.data_format == "nums":
-            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
-            splits = np.split(piano_roll, piano_roll.shape[0] // self.seq_len, axis=0) 
-        else:
-            splits = np.split(piano_roll, piano_roll.shape[1] // self.seq_len, axis=1) 
-
-        self.seqs.extend(splits)
-        self.targets.extend(splits)
-
-    def _next_step_load(self, piano_roll):
-        # pad to predict the first few tokens
         padding = np.zeros((piano_roll.shape[0], self.seq_len))
         piano_roll = np.concatenate((padding, piano_roll), axis=1)
         if self.data_format == "nums":
-            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axi
-            for i in range(piano_roll.shape[0] - self.seq_len):
-                self.seqs.append(piano_roll[i:(i + self.seq_len)])
+            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
+
+        for i in range(piano_roll.shape[0] - self.seq_len):
+            self.seqs.append(piano_roll[i:(i + self.seq_len)])
+            if self.train_type == "full_sequence": 
+                self.targets.append(piano_roll[(i + 1):(i + self.seq_len + 1)])
+            elif self.train_type == "next_step":
                 self.targets.append(piano_roll[i + self.seq_len])
-        else:
-            for i in range(piano_roll.shape[1] - self.seq_len):
-                self.seqs.append(piano_roll[:, i:(i + self.seq_len)])
-                self.targets.append(piano_roll[:, i + self.seq_len])
 
     def __len__(self):
         """
