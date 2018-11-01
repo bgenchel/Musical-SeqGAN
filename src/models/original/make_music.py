@@ -22,4 +22,4 @@ for i in range(len(output)):
     pr[output[i], i] = 1
 
 pm = piano_roll_to_pretty_midi(pr, fs=1/0.4)
-pm.write('midi_out.mid')
+pm.write('midi_out2.mid')
