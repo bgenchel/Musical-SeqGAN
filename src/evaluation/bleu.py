@@ -12,13 +12,13 @@ def evaluate_belu_score(predictions, targets):
     :param targets: an N x 38 numpy matrix, where N is the number of target ticks to be evaluated against
     :return: the BLEU score across the corpus of predicted ticks
     """
-    ref_sentences = ticks_to_sentences(targets)
-    cand_sentences = ticks_to_sentences(predictions)
+    ref_sentences = _ticks_to_sentences(targets)
+    cand_sentences = _ticks_to_sentences(predictions)
     bleu_score = corpus_bleu([[l] for l in ref_sentences], cand_sentences)
     return bleu_score
 
 
-def ticks_to_sentences(ticks):
+def _ticks_to_sentences(ticks):
     """
     Given an array of ticks, converts vector values to strings, returning a list of 8 measure "sentence" concatenations.
     :param ticks: an np array of ticks to convert to sentences
