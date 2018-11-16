@@ -9,8 +9,7 @@ class Rollout(object):
     Monte-Carlo Rollout Policy
     """
     def __init__(self, model, update_rate):
-        self.original_model = model
-        self.my_model = copy.deepcopy(model)
+        self.model = model
         self.update_rate = update_rate
 
     def get_reward(self, data, rollout_num, discriminator):
@@ -24,9 +23,8 @@ class Rollout(object):
         batch_size, seq_len = data.size()
         for i in range(rollout_num):
             for l in range(1, seq_len + 1):
-                data_subseqs = data[:, :]
-                # not really sure what this line means actually ...
-                samples = self.my_model.sample(batch_size, seq_len, data_subseqs)
+                data_subseqs = data[:, :l]
+                samples = self.model.sample(batch_size, seq_len, data_subseqs)
                 pred = discriminator(samples)
                 pred = pred.cpu().data[:, 1].numpy() # why cpu?
                 if i == 0:
@@ -45,11 +43,8 @@ class Rollout(object):
         to do with the rewards being calculated though ... not sure what the purpose
         of this is
         """
-        param_dict = {}
-        for name, param in self.original_model.named_parameters():
-            param_dict[name] = param.data
-        for name, param in self.my_model.named_parameters():
+        for name, param in self.model.named_parameters():
             if name.startswith('embed'):
-                param.data = param_dict[name]
+                continue
             else:
-                param.data = self.update_rate * param.data + (1 - self.update_rate) * param_dict[name]
+                param.data = self.update_rate * param.data + (1 - self.update_rate) * param.data

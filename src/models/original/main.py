@@ -4,6 +4,7 @@ taken from https://github.com/ZiJianZhao/SeqGAN-PyTorch
 import argparse
 import math
 import numpy as np
+import os
 import random
 import torch
 import torch.nn as nn
@@ -15,7 +16,6 @@ from tqdm import tqdm
 from generator import Generator
 from discriminator import Discriminator
 from rollout import Rollout
-from gan_loss import GANLoss
 # things I haven't really looked through yet but had to copy in due to time constraint
 from target_lstm import TargetLSTM
 from data_iter import GenDataIter, DisDataIter
@@ -24,11 +24,7 @@ parser = argparse.ArgumentParser(description="Training Parameter")
 parser.add_argument('--no_cuda', action='store_true', 
                     help="don't use CUDA, even if it is available.")
 args = parser.parse_args()
-
-args.cuda = False
-if torch.cuda.is_available() and (not args.no_cuda):
-    torch.cuda.set_device(0) # just default it for now, maybe change later
-    args.cuda = True
+print(args)
 
 # Basic Training Paramters
 SEED = 88 # seems like quite a long seed
@@ -39,12 +35,14 @@ POSITIVE_FILE = 'real.data' # not sure what is meant by 'positive'
 NEGATIVE_FILE = 'gene.data' # not sure what is meant by 'negative'
 EVAL_FILE = 'eval.data'
 VOCAB_SIZE = 5000 # ??
-GEN_PRETRAIN_EPOCHS = 120 # ??
-DSCR_PRETRAIN_DATA_GENS = 5
-DSCR_PRETRAIN_EPOCHS = 3
-# GEN_PRETRAIN_EPOCHS = 0
-# DSCR_PRETRAIN_DATA_GENS = 0
-# DSCR_PRETRAIN_EPOCHS = 0
+# PRE_EPOCH_NUM = 120 # ??
+PRE_EPOCH_NUM = 1 # ??
+
+# if torch.cuda.is_available() and (args.cuda is not None) and (args.cuda >= 0):
+args.cuda = False
+if torch.cuda.is_available() and (not args.no_cuda):
+    torch.cuda.set_device(0) # just default it for now, maybe change later
+    args.cuda = True
 
 # Generator Params
 gen_embed_dim = 32
@@ -54,12 +52,11 @@ gen_seq_len = 20
 # Discriminator Parameters
 dscr_embed_dim = 64
 dscr_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
-dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
+dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20] # didn't know there were this many layers
 dscr_dropout = 0.75
 # why not just have one class that indicates probability of being real with a sigmoid
-# output? The probability between two classes should just sum to 1 anyways
-dscr_num_classes = 2 
-
+# output?
+dscr_num_classes = 2 # why not just have one class that indicates probability of bein
 
 def generate_samples(model, batch_size, num_samples, output_file):
     samples = []
@@ -109,6 +106,44 @@ def eval_epoch(model, data_iter, loss_fn):
     data_iter.reset()
     return math.exp(total_loss / total_words) # weird measure ... to return
 
+class GANLoss(nn.Module):
+    """ 
+    Reward-Refined NLLLoss Function for adversarial reinforcement training of generator
+    """
+    def __init__(self, use_cuda, **kwargs):
+        self.use_cuda = use_cuda
+        super(GANLoss, self).__init__(**kwargs)
+
+    def forward(self, prob, target, reward):
+        """
+        Args:
+            prob: (N, C) - torch Variable
+            target: (N,) - torch Variable
+            reward: (N,) - torch Variable
+        """
+        print("prob.size: {}, target.size: {}, rewards.size: {}".format(prob.size(), target.size(), reward.size()))
+        N = target.size(0)
+        C = prob.size(1)
+        one_hot = torch.zeros((N, C))
+        indices = target.data.view((-1, 1))
+        print("indices.size: {}".format(indices.size()))
+        import pdb
+        pdb.set_trace()
+        if self.use_cuda:
+            one_hot = one_hot.cuda()
+            indices = indices.cuda()
+        # write 1 into all positions specified by target in the 1st dim
+        one_hot.scatter_(1, indices, 1)
+        print("one_hot._scatter size: {}".format(one_hot.size()))
+        one_hot = Variable(one_hot.type(torch.ByteTensor)) # sets the type, so it can be used in masked_select
+        if self.use_cuda:
+            one_hot = one_hot.cuda()
+        loss = torch.masked_select(prob, one_hot)
+        loss = loss * reward # why does a greater reward = greater loss? This should be opposite the case.
+        loss = -torch.sum(loss)
+        return loss
+
+
 # definitely need to go through this still
 def main():
     random.seed(SEED)
@@ -136,7 +171,7 @@ def main():
     gen_optimizer = optim.Adam(generator.parameters())
     if args.cuda:
         gen_criterion = gen_criterion.cuda()
-    for epoch in range(GEN_PRETRAIN_EPOCHS):
+    for epoch in range(PRE_EPOCH_NUM):
         loss = train_epoch(generator, gen_data_iter, gen_criterion, gen_optimizer)
         print('Epoch [%d] Model Loss: %f'% (epoch, loss))
         generate_samples(generator, BATCH_SIZE, GENERATED_NUM, EVAL_FILE)
@@ -146,15 +181,17 @@ def main():
 
     # Pretrain Discriminator
     print('Pretrain Discriminator ...')
-    dscr_criterion = nn.NLLLoss(size_average=False)
-    dscr_optimizer = optim.Adam(discriminator.parameters())
+    data_gens = 1 # 5
+    epochs = 1  # 3
+    dis_criterion = nn.NLLLoss(size_average=False)
+    dis_optimizer = optim.Adam(discriminator.parameters())
     if args.cuda:
-        dscr_criterion = dscr_criterion.cuda()
-    for i in range(DSCR_PRETRAIN_DATA_GENS):
+        dis_criterion = dis_criterion.cuda()
+    for i in range(data_gens):
         generate_samples(generator, BATCH_SIZE, GENERATED_NUM, NEGATIVE_FILE)
-        dscr_data_iter = DisDataIter(POSITIVE_FILE, NEGATIVE_FILE, BATCH_SIZE)
-        for j in range(DSCR_PRETRAIN_EPOCHS):
-            loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer)
+        dis_data_iter = DisDataIter(POSITIVE_FILE, NEGATIVE_FILE, BATCH_SIZE)
+        for j in range(epochs):
+            loss = train_epoch(discriminator, dis_data_iter, dis_criterion, dis_optimizer)
             print('Data Gen [%d], Epoch [%d], Loss: %f' % (i, j, loss))
 
     # Adversarial Training 
@@ -171,10 +208,10 @@ def main():
     if args.cuda:
         gen_criterion = gen_criterion.cuda()
 
-    dscr_criterion = nn.NLLLoss(size_average=False)
-    dscr_optimizer = optim.Adam(discriminator.parameters())
+    dis_criterion = nn.NLLLoss(size_average=False)
+    dis_optimizer = optim.Adam(discriminator.parameters())
     if args.cuda:
-        dscr_criterion = dscr_criterion.cuda()
+        dis_criterion = dis_criterion.cuda()
 
     for total_batch in range(TOTAL_BATCH):
         ## Train the generator for one step
@@ -206,9 +243,9 @@ def main():
         
         for _ in range(4):
             generate_samples(generator, BATCH_SIZE, GENERATED_NUM, NEGATIVE_FILE)
-            dscr_data_iter = DisDataIter(POSITIVE_FILE, NEGATIVE_FILE, BATCH_SIZE)
+            dis_data_iter = DisDataIter(POSITIVE_FILE, NEGATIVE_FILE, BATCH_SIZE)
             for _ in range(2):
-                loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer)
+                loss = train_epoch(discriminator, dis_data_iter, dis_criterion, dis_optimizer)
 
 if __name__ == '__main__':
     main()
