@@ -22,7 +22,6 @@ from generator import Generator
 from discriminator import Discriminator
 from rollout import Rollout
 from gan_loss import GANLoss
-# from target_lstm import TargetLSTM
 from data_iter import GenDataset, DscrDataset
 
 sys.path.append('../../data')
@@ -34,8 +33,9 @@ parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"
                     default="full_sequence", help="how to train the network")
 parser.add_argument('-glr', '--gen_learning_rate', default=1e-2, type=float, help="learning rate for generator")
 parser.add_argument('-dlr', '--dscr_learning_rate', default=1e-3, type=float, help="learning rate for discriminator")
-parser.add_argument('-nc', '--no_cuda', action='store_true', 
-                    help="don't use CUDA, even if it is available.")
+parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', type=bool, 
+                    help="force pretraining of generator and discriminator, instead of loading from cache.")
+parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
 args = parser.parse_args()
 
 args.cuda = False
@@ -43,32 +43,36 @@ if torch.cuda.is_available() and (not args.no_cuda):
     torch.cuda.set_device(0) # just default it for now, maybe change later
     args.cuda = True
 
-# Basic Training Paramters
+# General Training Paramters
 SEED = 88 # for the randomizer
 BATCH_SIZE = 64
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
 GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
-REAL_FNAME = 'real.data'
-GEN_FNAME = 'generated.data'
-EVAL_FILE = 'eval.data'
 VOCAB_SIZE = 89
+
+# Pretraining Paramters
+GEN_PRETRAIN_EPOCHS = 120 # original val: 120
+DSCR_PRETRAIN_DATA_GENS = 5
+DSCR_PRETRAIN_EPOCHS = 3
+
+# Adversarial Training Params
 NUM_ROLLOUTS = 16
-# GEN_PRETRAIN_EPOCHS = 200 # original val: 120
-GEN_PRETRAIN_EPOCHS = 1 
-# DSCR_PRETRAIN_DATA_GENS = 5
-# DSCR_PRETRAIN_EPOCHS = 3
-DSCR_PRETRAIN_DATA_GENS = 1
-DSCR_PRETRAIN_EPOCHS = 1
 G_STEPS = 1
 D_DATA_GENS = 4
 D_STEPS = 2
 
-# Generator Params
+# Paths
+REAL_FILE = op.join('temp_data', 'real.data')
+GEN_FILE = op.join('temp_data', 'generated.data')
+PT_GEN_MODEL_FILE = op.join('pretrained', 'generator.pt')
+PT_DSCR_MODEL_FILE = op.join('pretrained', 'discriminator.pt')
+
+# Generator Model Params
 gen_embed_dim = 64
 gen_hidden_dim = 64
 gen_seq_len = 32
 
-# Discriminator Parameters
+# Discriminator Model Parameters
 dscr_embed_dim = 64
 dscr_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
 dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
@@ -168,38 +172,65 @@ def main():
         discriminator = discriminator.cuda()
 
     # Pretrain Generator using MLE
-    print('Pretrain Generator with MLE ...')
-    gen_criterion = nn.NLLLoss(size_average=False)
-    gen_optimizer = optim.Adam(generator.parameters(), lr=args.gen_learning_rate)
-    if args.cuda and torch.cuda.is_available():
-        gen_criterion = gen_criterion.cuda()
-    for epoch in range(GEN_PRETRAIN_EPOCHS):
-        train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type)
-        print('Pretrain Gen: Epoch [%d] Training Loss: %f'% (epoch, train_loss))
-        valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
-        print('Pretrain Gen: Epoch [%d] Validation Loss: %f'% (epoch, valid_loss))
+    if not args.force_pretrain and os.exists(PT_GEN_MODEL_FILE):
+        print('Loading Pretrained Generator ...')
+        checkpoint = torch.load(PT_GEN_MODEL_FILE)
+        generator.load_state_dict(checkpoint['state_dict'])
+        print('::INFO:: DateTime - %s.' % checkpoint['datetime'])
+        print('::INFO:: Model was trained for %d epochs.' % checkpoint['epochs'])
+        print('::INFO:: Final Training Loss - %.5f' % checkpoint['train_loss'])
+        print('::INFO:: Final Validation Loss - %.5f' % checkpoint['valid_loss'])
+    else:
+        print('Pretraining Generator with MLE ...')
+        gen_criterion = nn.NLLLoss(size_average=False)
+        gen_optimizer = optim.Adam(generator.parameters(), lr=args.gen_learning_rate)
+        if args.cuda and torch.cuda.is_available():
+            gen_criterion = gen_criterion.cuda()
+        for epoch in range(GEN_PRETRAIN_EPOCHS):
+            train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type)
+            print('::PRETRAIN GEN:: Epoch [%d] Training Loss: %f'% (epoch, train_loss))
+            valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
+            print('::PRETRAIN GEN:: Epoch [%d] Validation Loss: %f'% (epoch, valid_loss))
+        print('Caching Pretrained Generator ...')
+        torch.save({'state_dict': generator.state_dict(),
+                    'epochs': epoch + 1,
+                    'train_loss': train_loss,
+                    'valid_loss': valid_loss,
+                    'datetime': datetime.now().isoformat()}, PT_GEN_MODEL_FILE)
 
     # Pretrain Discriminator
-    print('Pretrain Discriminator ...')
-    dscr_criterion = nn.NLLLoss(size_average=False)
-    dscr_optimizer = optim.Adam(discriminator.parameters(), lr=args.dscr_learning_rate)
-    if args.cuda and torch.cuda.is_available():
-        dscr_criterion = dscr_criterion.cuda()
-    for i in range(DSCR_PRETRAIN_DATA_GENS):
-        print('Creating real and fake datafiles ...')
-        create_generated_data_file(generator, BATCH_SIZE*len(data_loader), BATCH_SIZE, GEN_FNAME)
-        create_real_data_file(data_loader, REAL_FNAME)
-        dscr_data_iter = DataLoader(DscrDataset(REAL_FNAME, GEN_FNAME), batch_size=BATCH_SIZE, shuffle=True)
-        for j in range(DSCR_PRETRAIN_EPOCHS):
-            loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
-            print('Pretrain Dscr: Data Gen [%d] Epoch [%d] Loss: %f' % (i, j, loss))
+    if not args.force_pretrain and os.exists(PT_DSCR_MODEL_FILE):
+        print("Loading Pretrained Discriminator ...")
+        checkpoint = torch.load(PT_DSCR_MODEL_FILE)
+        discriminator.load_state_dict(checkpoint['state_dict'])
+        print('::INFO:: DateTime - %s.' % checkpoint['datetime'])
+        print('::INFO:: Model was trained on %d data generations.' % checkpoint['data_gens'])
+        print('::INFO:: Model was trained for %d epochs per data generation.' % checkpoint['epochs'])
+        print('::INFO:: Final Loss - %.5f' % checkpoint['loss'])
+    else:
+        print('Pretraining Discriminator ...')
+        dscr_criterion = nn.NLLLoss(size_average=False)
+        dscr_optimizer = optim.Adam(discriminator.parameters(), lr=args.dscr_learning_rate)
+        if args.cuda and torch.cuda.is_available():
+            dscr_criterion = dscr_criterion.cuda()
+        for i in range(DSCR_PRETRAIN_DATA_GENS):
+            print('Creating real and fake datafiles ...')
+            create_generated_data_file(generator, BATCH_SIZE*len(data_loader), BATCH_SIZE, GEN_FILE)
+            create_real_data_file(data_loader, REAL_FILE)
+            dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
+            for j in range(DSCR_PRETRAIN_EPOCHS):
+                loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
+                print('::PRETRAIN DSCR:: Data Gen [%d] Epoch [%d] Loss: %f' % (i, j, loss))
+        torch.save({'state_dict': discriminator.state_dict(),
+                    'data_gens': DSCR_PRETRAIN_DATA_GENS,
+                    'epochs': DSCR_PRETRAIN_EPOCHS,
+                    'loss': loss,
+                    'datetime': datetime.now().isoformat()}, PT_DSCR_MODEL_FILE)
+
 
     # Adversarial Training 
     print('#'*100)
     print('Start Adversarial Training...\n')
-    # import pdb
-    # pdb.set_trace()
-
     rollout = Rollout(generator, 0.8)
 
     gen_gan_loss = GANLoss(use_cuda=args.cuda)
@@ -248,8 +279,8 @@ def main():
             rollout.update_params()
         
         for data_gen in range(D_DATA_GENS):
-            create_generated_data_file(generator, BATCH_SIZE, GENERATED_NUM, GEN_FNAME)
-            dscr_data_iter = DataLoader(DscrDataset(REAL_FNAME, GEN_FNAME), batch_size=BATCH_SIZE, shuffle=True)
+            create_generated_data_file(generator, BATCH_SIZE, GENERATED_NUM, GEN_FILE)
+            dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for dstep in range(D_STEPS):
                 loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
                 print('Adv Epoch [%d], Dscr Gen [%d], Dscr Step [%d] - Loss: %f' % (epoch, data_gen, dstep, loss))
