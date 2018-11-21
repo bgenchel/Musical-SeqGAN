@@ -126,7 +126,7 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
         loss.backward()
         optimizer.step()
     # return total_loss / total_words
-    return math.exp(total_loss / total_words) # weird measure ... to return
+    return total_loss / total_words # weird measure ... to return
 
 
 def eval_epoch(model, data_iter, loss_fn, train_type):

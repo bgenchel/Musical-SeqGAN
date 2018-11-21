@@ -6,3 +6,4 @@ __pycache__
 # ignore the actual data not the 
 # data code
 /data
+*.data
