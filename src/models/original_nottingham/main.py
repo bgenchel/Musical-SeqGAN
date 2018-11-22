@@ -33,7 +33,7 @@ parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"
                     default="full_sequence", help="how to train the network")
 parser.add_argument('-glr', '--gen_learning_rate', default=1e-2, type=float, help="learning rate for generator")
 parser.add_argument('-dlr', '--dscr_learning_rate', default=1e-3, type=float, help="learning rate for discriminator")
-parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', type=bool, 
+parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', 
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
 parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
 args = parser.parse_args()
@@ -69,11 +69,11 @@ PT_DSCR_MODEL_FILE = op.join('pretrained', 'discriminator.pt')
 
 # Generator Model Params
 gen_embed_dim = 64
-gen_hidden_dim = 64
+gen_hidden_dim = 128 # originally 64
 gen_seq_len = 32
 
 # Discriminator Model Parameters
-dscr_embed_dim = 64
+dscr_embed_dim = 128
 dscr_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
 dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
 dscr_dropout = 0.75
@@ -151,7 +151,7 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
             loss = loss_fn(pred, target_var)
             total_loss += loss.item()
             total_words += data_var.size(0) * data_var.size(1)
-    return math.exp(total_loss / total_words) # weird measure ... to return
+    return total_loss / total_words # weird measure ... to return
 
 
 # definitely need to go through this still
@@ -172,7 +172,7 @@ def main():
         discriminator = discriminator.cuda()
 
     # Pretrain Generator using MLE
-    if not args.force_pretrain and os.exists(PT_GEN_MODEL_FILE):
+    if not args.force_pretrain and op.exists(PT_GEN_MODEL_FILE):
         print('Loading Pretrained Generator ...')
         checkpoint = torch.load(PT_GEN_MODEL_FILE)
         generator.load_state_dict(checkpoint['state_dict'])
@@ -184,6 +184,7 @@ def main():
         print('Pretraining Generator with MLE ...')
         gen_criterion = nn.NLLLoss(size_average=False)
         gen_optimizer = optim.Adam(generator.parameters(), lr=args.gen_learning_rate)
+        min_valid_loss = float('inf')
         if args.cuda and torch.cuda.is_available():
             gen_criterion = gen_criterion.cuda()
         for epoch in range(GEN_PRETRAIN_EPOCHS):
@@ -191,15 +192,17 @@ def main():
             print('::PRETRAIN GEN:: Epoch [%d] Training Loss: %f'% (epoch, train_loss))
             valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
             print('::PRETRAIN GEN:: Epoch [%d] Validation Loss: %f'% (epoch, valid_loss))
-        print('Caching Pretrained Generator ...')
-        torch.save({'state_dict': generator.state_dict(),
-                    'epochs': epoch + 1,
-                    'train_loss': train_loss,
-                    'valid_loss': valid_loss,
-                    'datetime': datetime.now().isoformat()}, PT_GEN_MODEL_FILE)
+            if valid_loss < min_valid_loss:
+                min_valid_loss = valid_loss
+                print('Caching Pretrained Generator ...')
+                torch.save({'state_dict': generator.state_dict(),
+                            'epochs': epoch + 1,
+                            'train_loss': train_loss,
+                            'valid_loss': valid_loss,
+                            'datetime': datetime.now().isoformat()}, PT_GEN_MODEL_FILE)
 
     # Pretrain Discriminator
-    if not args.force_pretrain and os.exists(PT_DSCR_MODEL_FILE):
+    if not args.force_pretrain and op.exists(PT_DSCR_MODEL_FILE):
         print("Loading Pretrained Discriminator ...")
         checkpoint = torch.load(PT_DSCR_MODEL_FILE)
         discriminator.load_state_dict(checkpoint['state_dict'])
@@ -221,6 +224,7 @@ def main():
             for j in range(DSCR_PRETRAIN_EPOCHS):
                 loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
                 print('::PRETRAIN DSCR:: Data Gen [%d] Epoch [%d] Loss: %f' % (i, j, loss))
+        print('Caching Pretrained Discriminator ...')
         torch.save({'state_dict': discriminator.state_dict(),
                     'data_gens': DSCR_PRETRAIN_DATA_GENS,
                     'epochs': DSCR_PRETRAIN_EPOCHS,
