@@ -35,8 +35,8 @@ POSITIVE_FILE = 'real.data' # not sure what is meant by 'positive'
 NEGATIVE_FILE = 'gene.data' # not sure what is meant by 'negative'
 EVAL_FILE = 'eval.data'
 VOCAB_SIZE = 5000 # ??
-# PRE_EPOCH_NUM = 120 # ??
-PRE_EPOCH_NUM = 1 # ??
+PRE_EPOCH_NUM = 80 # ??
+# PRE_EPOCH_NUM = 1 # ??
 
 # if torch.cuda.is_available() and (args.cuda is not None) and (args.cuda >= 0):
 args.cuda = False
@@ -127,8 +127,8 @@ class GANLoss(nn.Module):
         one_hot = torch.zeros((N, C))
         indices = target.data.view((-1, 1))
         print("indices.size: {}".format(indices.size()))
-        import pdb
-        pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
         if self.use_cuda:
             one_hot = one_hot.cuda()
             indices = indices.cuda()
@@ -181,8 +181,8 @@ def main():
 
     # Pretrain Discriminator
     print('Pretrain Discriminator ...')
-    data_gens = 1 # 5
-    epochs = 1  # 3
+    data_gens = 5 # 5
+    epochs = 3  # 3
     dis_criterion = nn.NLLLoss(size_average=False)
     dis_optimizer = optim.Adam(discriminator.parameters())
     if args.cuda:
@@ -230,6 +230,7 @@ def main():
             rewards = rewards.cuda()
         prob = generator.forward(inputs)
         loss = gen_gan_loss(prob, targets, rewards)
+        print('Adv Epoch [%d], Gen Step [%d] - Train Loss: %f' % (total_batch, 0, loss))
         gen_gan_optm.zero_grad()
         loss.backward()
         gen_gan_optm.step()
@@ -238,14 +239,15 @@ def main():
             generate_samples(generator, BATCH_SIZE, GENERATED_NUM, EVAL_FILE)
             eval_iter = GenDataIter(EVAL_FILE, BATCH_SIZE)
             loss = eval_epoch(target_lstm, eval_iter, gen_criterion)
-            print('Batch [%d] True Loss: %f' % (total_batch, loss))
+            print('Adv Epoch [%d], Gen Step [%d] - Valid Loss: %f' % (total_batch, 0, loss))
         rollout.update_params()
         
-        for _ in range(4):
+        for data_gen in range(4):
             generate_samples(generator, BATCH_SIZE, GENERATED_NUM, NEGATIVE_FILE)
             dis_data_iter = DisDataIter(POSITIVE_FILE, NEGATIVE_FILE, BATCH_SIZE)
-            for _ in range(2):
+            for dstep in range(2):
                 loss = train_epoch(discriminator, dis_data_iter, dis_criterion, dis_optimizer)
+                print('Adv Epoch [%d], Dscr Gen [%d], Dscr Step [%d] - Loss: %f' % (total_batch, data_gen, dstep, loss))
 
 if __name__ == '__main__':
     main()

@@ -17,8 +17,6 @@ class GANLoss(nn.Module):
             targets: (seq_len) - torch Variable
             rewards: (seq_len) - torch Variable
         """
-        # import pdb
-        # pdb.set_trace()
         _, _, vocab_size = probs.size()
         probs = probs.view((-1, vocab_size))
         one_hot = torch.zeros(probs.size())

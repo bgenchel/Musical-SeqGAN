@@ -112,6 +112,7 @@ def create_real_data_file(data_iter, output_file):
 def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
     total_loss = 0.0
     total_words = 0.0 # ???
+    total_batches = 0.0
     for (data, target) in tqdm(data_iter, desc=' - Training', leave=False):
         data_var = Variable(data)
         target_var = Variable(target)
@@ -126,11 +127,17 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
         loss = loss_fn(pred, target_var)
         total_loss += loss.item()
         total_words += data_var.size(0) * data_var.size(1)
+        total_batches += 1
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    # return total_loss / total_words
-    return total_loss / total_words # weird measure ... to return
+
+    if type(model) == Discriminator:
+        # import pdb
+        # pdb.set_trace()
+        return total_loss / total_batches
+    else:
+        return total_loss / total_words # weird measure ... to return
 
 
 def eval_epoch(model, data_iter, loss_fn, train_type):
@@ -151,7 +158,11 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
             loss = loss_fn(pred, target_var)
             total_loss += loss.item()
             total_words += data_var.size(0) * data_var.size(1)
-    return total_loss / total_words # weird measure ... to return
+
+    if type(model) == Discriminator:
+        return total_loss / total_batches
+    else:
+        return total_loss / total_words # weird measure ... to return
 
 
 # definitely need to go through this still
@@ -167,6 +178,7 @@ def main():
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
     discriminator = Discriminator(VOCAB_SIZE, dscr_embed_dim, dscr_filter_sizes, dscr_num_filters, dscr_num_classes, dscr_dropout)
+
     if args.cuda and torch.cuda.is_available():
         generator = generator.cuda()
         discriminator = discriminator.cuda()
@@ -231,6 +243,15 @@ def main():
                     'loss': loss,
                     'datetime': datetime.now().isoformat()}, PT_DSCR_MODEL_FILE)
 
+    # create real data file if it doesn't yet exist
+    if not op.exists(REAL_FILE):
+        print('Creating real data file...')
+        create_real_data_file(data_loader, REAL_FILE)
+
+    # create generated data file if it doesn't yet exist
+    if not op.exists(GEN_FILE):
+        print('Creating generated data file...')
+        create_generated_data_file(generator, BATCH_SIZE * len(data_loader), BATCH_SIZE, GEN_FILE)
 
     # Adversarial Training 
     print('#'*100)
@@ -283,7 +304,7 @@ def main():
             rollout.update_params()
         
         for data_gen in range(D_DATA_GENS):
-            create_generated_data_file(generator, BATCH_SIZE, GENERATED_NUM, GEN_FILE)
+            create_generated_data_file(generator, GENERATED_NUM, BATCH_SIZE, GEN_FILE)
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for dstep in range(D_STEPS):
                 loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)

@@ -10,6 +10,7 @@ class Rollout(object):
     """
     def __init__(self, model, update_rate):
         self.model = model
+        self.rollout_model = copy.deepcopy(model)
         self.update_rate = update_rate
 
     def get_reward(self, data, rollout_num, discriminator):
@@ -24,7 +25,7 @@ class Rollout(object):
         for i in range(rollout_num):
             for l in range(1, seq_len + 1):
                 data_subseqs = data[:, :l]
-                samples = self.model.sample(batch_size, seq_len, data_subseqs)
+                samples = self.rollout_model.sample(batch_size, seq_len, data_subseqs)
                 pred = discriminator(samples)
                 pred = pred.cpu().data[:, 1].numpy() # why cpu?
                 if i == 0:
@@ -43,8 +44,17 @@ class Rollout(object):
         to do with the rewards being calculated though ... not sure what the purpose
         of this is
         """
+        dic = {}
         for name, param in self.model.named_parameters():
-            if name.startswith('embed'):
-                continue
+            dic[name] = param.data
+        for name, param in self.rollout_model.named_parameters():
+            if name.startswith('emb'):
+                param.data = dic[name]
             else:
-                param.data = self.update_rate * param.data + (1 - self.update_rate) * param.data
+                param.data = self.update_rate * param.data + (1 - self.update_rate) * dic[name]
+
+        # for name, param in self.model.named_parameters():
+        #     if name.startswith('embed'):
+        #         continue
+        #     else:
+        #         param.data = self.update_rate * param.data + (1 - self.update_rate) * param.data
