@@ -31,7 +31,7 @@ from loading.dataloaders import SplitDataLoader
 parser = argparse.ArgumentParser(description="Training Parameter")
 parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"), 
                     default="full_sequence", help="how to train the network")
-parser.add_argument('-glr', '--gen_learning_rate', default=1e-2, type=float, help="learning rate for generator")
+parser.add_argument('-glr', '--gen_learning_rate', default=1e-3, type=float, help="learning rate for generator")
 parser.add_argument('-dlr', '--dscr_learning_rate', default=1e-3, type=float, help="learning rate for discriminator")
 parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', 
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
