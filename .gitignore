@@ -1,3 +1,4 @@
+.idea/
 ./activate
 *.pyc
 __pycache__
