@@ -205,7 +205,7 @@ class NottinghamMLEDataset(Dataset):
         """
         return torch.from_numpy(np.array(self.seqs[index])), torch.from_numpy(np.array(self.targets[index]))
 
-class NottinghamMLEDataset(Dataset):
+class NottinghamDataset(Dataset):
     """
     Loads the nottingham dataset, in midi format. From the original paper:
     
@@ -281,70 +281,70 @@ class NottinghamMLEDataset(Dataset):
         """
         return torch.from_numpy(np.array(self.seqs[index])), torch.from_numpy(np.array(self.targets[index]))
 
-class NottinghamNonOverlapDataset(Dataset):
-    """
-    Loads the nottingham dataset, in midi format. From the original paper:
+# class NottinghamNonOverlapDataset(Dataset):
+#     """
+#     Loads the nottingham dataset, in midi format. From the original paper:
     
-    For music composition, we use the Nottingham dataset as our training data, 
-    which is a collection of 695 music of folk tunes in midi file format. We 
-    study the solo track of each music. In our work, we use 88 numbers to 
-    represent 88 pitches, which correspond to the 88 keys on the piano. With 
-    the pitch sampling for every 0.4s, we transform the midi files into 
-    sequences of numbers from 1 to 88 with the length 32.
-    """
+#     For music composition, we use the Nottingham dataset as our training data, 
+#     which is a collection of 695 music of folk tunes in midi file format. We 
+#     study the solo track of each music. In our work, we use 88 numbers to 
+#     represent 88 pitches, which correspond to the 88 keys on the piano. With 
+#     the pitch sampling for every 0.4s, we transform the midi files into 
+#     sequences of numbers from 1 to 88 with the length 32.
+#     """
 
-    def __init__(self, load_dir, period=0.4, seq_len=32, data_format="nums", **kwargs):
-        """
-        Loads the MIDI tick information, converts into format based on original paper designation.
-        :param load_dir: location of nottingham midi dataset
-        :param period: how much time 1 tick represents in the MIDI
-        :param seq_len: how many ticks in a sequence/data point
-        :param target_type: if "full_sequence", the target and sequence are both the full input sequence, 
-            if "next_step", target will be the next step and sequence will be the proceeding *seq_len* steps.
-        :param data_format: if "nums", then the data will be a list of note numbers from 0 to 88. if "ticks", then the 
-            data will be a sequence of one-hot size 88 vectors.
-        """
-        super().__init__(**kwargs)
+#     def __init__(self, load_dir, period=0.4, seq_len=32, data_format="nums", **kwargs):
+#         """
+#         Loads the MIDI tick information, converts into format based on original paper designation.
+#         :param load_dir: location of nottingham midi dataset
+#         :param period: how much time 1 tick represents in the MIDI
+#         :param seq_len: how many ticks in a sequence/data point
+#         :param target_type: if "full_sequence", the target and sequence are both the full input sequence, 
+#             if "next_step", target will be the next step and sequence will be the proceeding *seq_len* steps.
+#         :param data_format: if "nums", then the data will be a list of note numbers from 0 to 88. if "ticks", then the 
+#             data will be a sequence of one-hot size 88 vectors.
+#         """
+#         super().__init__(**kwargs)
 
-        assert data_format in ("ticks", "nums")
-        if not op.exists(load_dir):
-            raise Exception("Data directory does not exist.")
+#         assert data_format in ("ticks", "nums")
+#         if not op.exists(load_dir):
+#             raise Exception("Data directory does not exist.")
 
-        self.seq_len = seq_len
-        self.data_format = data_format
+#         self.seq_len = seq_len
+#         self.data_format = data_format
 
-        self.seqs = []
+#         self.seqs = []
 
-        for fname in os.listdir(load_dir):
-            if op.splitext(fname)[1] != ".mid":
-                # print("Skipping %s..." % fname)
-                continue
-            song = pm.PrettyMIDI(op.join(load_dir, fname))
-            melody = song.instruments[0]
-            piano_roll = melody.get_piano_roll(fs=(1/period))
-            piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
-            self._sequence_load(piano_roll)
+#         for fname in os.listdir(load_dir):
+#             if op.splitext(fname)[1] != ".mid":
+#                 # print("Skipping %s..." % fname)
+#                 continue
+#             song = pm.PrettyMIDI(op.join(load_dir, fname))
+#             melody = song.instruments[0]
+#             piano_roll = melody.get_piano_roll(fs=(1/period))
+#             piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
+#             self._sequence_load(piano_roll)
 
-    def _sequence_load(self, piano_roll):
-        # pad for an even split
-        if self.data_format == "nums":
-            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
+#     def _sequence_load(self, piano_roll):
+#         # pad for an even split
+#         if self.data_format == "nums":
+#             piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
 
-        for i in range(piano_roll.shape[0] // self.seq_len):
-            start, end = i*self.seq_len, (i + 1)*self.seq_len 
-            self.seqs.append(piano_roll[start:end])
+#         for i in range(piano_roll.shape[0] // self.seq_len):
+#             start, end = i*self.seq_len, (i + 1)*self.seq_len 
+#             self.seqs.append(piano_roll[start:end])
 
-    def __len__(self):
-        """
-        The length of the dataset.
-        :return: the number of sequences in the dataset
-        """
-        return len(self.seqs)
+#     def __len__(self):
+#         """
+#         The length of the dataset.
+#         :return: the number of sequences in the dataset
+#         """
+#         return len(self.seqs)
 
-    def __getitem__(self, index):
-        """
-        A sequence and its target.
-        :param index: the index of the sequence and target to fetch
-        :return: the sequence and target at the specified index
-        """
-        return torch.from_numpy(np.array(self.seqs[index]))
+#     def __getitem__(self, index):
+#         """
+#         A sequence and its target.
+#         :param index: the index of the sequence and target to fetch
+#         :return: the sequence and target at the specified index
+#         """
+#         return torch.from_numpy(np.array(self.seqs[index]))
