@@ -44,7 +44,7 @@ def xml_to_dict(fpath):
 
 if __name__ == '__main__':
     root_dir = str(Path(op.abspath(__file__)).parents[3])
-    xml_path = op.join(root_dir, 'data', 'raw', 'xml')
+    xml_path = op.join(root_dir, 'data', 'raw', 'bebop')
     if not op.exists(xml_path):
         raise Exception("no xml directory exists.")
     json_path = op.join(root_dir, 'data', 'raw', 'json')

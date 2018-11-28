@@ -53,7 +53,7 @@ if torch.cuda.is_available() and (not args.no_cuda):
 SEED = 88 # for the randomizer
 BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
-NUM_SAMPLES = 20000 # num samples in the data files for training discriminator
+NUM_SAMPLES = 5000 # num samples in the data files for training discriminator
 # GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
 VOCAB_SIZE = 89
 

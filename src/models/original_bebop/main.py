@@ -25,7 +25,7 @@ from gan_loss import GANLoss
 from data_iter import GenDataset, DscrDataset
 
 sys.path.append('../../data')
-from parsing.datasets import NottinghamDataset
+from parsing.datasets import MidiTicksDataset
 from loading.dataloaders import SplitDataLoader
 
 import pdb
@@ -74,10 +74,13 @@ GEN_FILE = op.join('temp_data', 'generated.data')
 PT_GEN_MODEL_FILE = op.join('pretrained', 'generator.pt')
 PT_DSCR_MODEL_FILE = op.join('pretrained', 'discriminator.pt')
 
+MEASURES_PER_SEQ = 4
+HOP_SIZE = 4
 # Generator Model Params
 gen_embed_dim = 64
 gen_hidden_dim = 128 # originally 64
 gen_seq_len = 96*4
+
 
 # Discriminator Model Parameters
 dscr_embed_dim = 128
@@ -180,12 +183,15 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
 
 # definitely need to go through this still
 def main():
+    print("ENTERED MAIN")
     random.seed(SEED)
     np.random.seed(SEED)
 
-    pretrain_dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    pretrain_dataset = MidiTicksDataset('../../../data/processed/songs', measures_per_seq=MEASURES_PER_SEQ,
+            hop_size=HOP_SIZE, target_type=args.train_type)
     train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
-    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    dataset = MidiTicksDataset('../../../data/processed/songs', measures_per_seq=MEASURES_PER_SEQ,
+            hop_size=HOP_SIZE, target_type=args.train_type, drop_last=True)
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
     discriminator = Discriminator(VOCAB_SIZE, dscr_embed_dim, dscr_filter_sizes, dscr_num_filters, dscr_num_classes, dscr_dropout)

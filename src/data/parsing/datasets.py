@@ -28,7 +28,8 @@ class MidiTicksDataset(Dataset):
         :param target_type: if "full_sequence" the target is the full input sequence, if "next_step" the target is
                 the last tick of the input sequence
         """
-        super(MidiTicksDataset, self).__init__(**kwargs)
+        print("INIT")
+        super().__init__(**kwargs)
 
         if not op.exists(load_dir):
             raise Exception("Data directory does not exist.")
@@ -81,12 +82,6 @@ class MidiTicksDataset(Dataset):
                     else:
                         formatted_measure = self._get_empty_ticks(96)
                         sequence += formatted_measure
-
-                # HACK
-                # Convert tick to argmax
-                import pdb
-                pdb.set_trace()
-                sequence = list(np.array(sequence).argmax(axis=1))
 
                 if target_type == "full_sequence":
                     target = sequence

@@ -156,6 +156,7 @@ class Parser:
         """
         songs = []
 
+        skipped = 0
         for filename in self.json_paths:
             # Load song dict
             try:
@@ -181,7 +182,10 @@ class Parser:
             scale_factor = self.ticks / divisions
 
             if scale_factor > 1:
-                raise Exception("Error: MusicXML has lower resolution than desired MIDI ticks.")
+                skipped += 1
+                print(skipped)
+                continue
+                # raise Exception("Error: MusicXML has lower resolution than desired MIDI ticks.")
 
             # Parse each measure
             measures = []
@@ -528,9 +532,11 @@ def transpose_song_midi_ticks(song, steps):
 
     for measure in transposed["measures"]:
         for group in measure["groups"]:
+            print(group['harmony'])
             if group["harmony"]:
                 # Transpose harmony
-                group["harmony"] = rotate(group["harmony"], steps)
+                group["harmony"]["root"] = rotate(group["harmony"]["root"], steps)
+                group["harmony"]["pitch_classes"] = rotate(group["harmony"]["pitch_classes"], steps)
 
             # Transpose ticks
             direction = sign(steps)
@@ -684,14 +690,15 @@ def rotate(l, x):
     :param x: a positive or negative integer steps to rotate
     :return: the rotated list
     """
+    print(type(x))
     return l[-x:] + l[:-x]
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="pitch_duration_tokens",
+    parser.add_argument("--output", default="midi_ticks",
                         help="The output format of the processed data.")
-    parser.add_argument("--transpose", default=False,
+    parser.add_argument("--transpose", default=True,
                         help="Whether or not to transpose the parsed songs into all 12 keys.")
     args = parser.parse_args()
 
