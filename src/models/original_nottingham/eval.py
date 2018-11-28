@@ -1,10 +1,11 @@
 import os.path as op
 import sys
 import torch
+from pathlib import Path
 from torch.utils.data import DataLoader
 
-sys.path.append('../..')
-from parsing.datasets import NottinghamDataset
+sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
+from data.parsing.datasets import NottinghamDataset
 from evaluation.bleu import BleuScore
 from generator import Generator
 
@@ -14,11 +15,10 @@ HIDDEN_DIM = 128
 SEQ_LEN = 32
 
 def main():
-    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', 
-                                seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=SEQ_LEN, data_format="nums")
     dataloader = DataLoader(dataset, batch_size=1, drop_last=True)
     pretrained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=False)
-    pretrained.load_state_dict(torch.load(op.join('pretrained', 'generator.pt')), map_location='cpu')
+    pretrained.load_state_dict(torch.load(op.join('pretrained', 'generator.pt'), map_location='cpu')['state_dict'])
     fully_trained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=False)
     fully_trained.load_state_dict(torch.load(op.join('runs', 'Nov27-18_14:16:33', 'generator_state.pt'), map_location='cpu'))
 
