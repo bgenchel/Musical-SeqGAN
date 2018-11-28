@@ -1,0 +1,3 @@
+[submodule "src/evaluation/mgeval"]
+	path = src/evaluation/mgeval
+	url = https://github.com/RichardYang40148/mgeval.git
