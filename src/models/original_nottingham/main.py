@@ -319,7 +319,7 @@ def main():
     model_inputs = {'vocab_size': VOCAB_SIZE,
                     'embed_dim': gen_embed_dim,
                     'hidden_dim': gen_hidden_dim,
-                    'use_cuda': False}
+                    'use_cuda': args.use_cuda}
     json.dump(model_inputs, open(op.join(run_dir, 'model_inputs.json'), 'w'), indent=4)
     torch.save(generator.state_dict(), op.join(run_dir, 'generator_state.pt'))
 
