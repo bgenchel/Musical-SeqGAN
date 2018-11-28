@@ -25,14 +25,18 @@ from gan_loss import GANLoss
 from data_iter import GenDataset, DscrDataset
 
 sys.path.append('../../data')
-from parsing.datasets import NottinghamMLEDataset, NottinghamNonOverlapDataset
+from parsing.datasets import NottinghamDataset
 from loading.dataloaders import SplitDataLoader
 
 parser = argparse.ArgumentParser(description="Training Parameter")
 parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"), 
                     default="full_sequence", help="how to train the network")
 parser.add_argument('-glr', '--gen_learning_rate', default=1e-3, type=float, help="learning rate for generator")
+parser.add_argument('-aglr', '--adv_gen_learning_rate', default=1e-3, type=float, 
+                    help="learning rate for generator during adversarial training")
 parser.add_argument('-dlr', '--dscr_learning_rate', default=1e-3, type=float, help="learning rate for discriminator")
+parser.add_argument('-adlr', '--adv_dscr_learning_rate', default=1e-3, type=float, 
+                    help=" adversarial learning rate for discriminator")
 parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', 
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
 parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
@@ -100,7 +104,7 @@ def create_real_data_file(data_iter, output_file):
     data_iter = iter(data_iter)
     for sample_batch in data_iter:
         sample_batch = list(sample_batch.numpy())
-        samples.extend(sample_batch)
+        samples.extend(sample_batch[0])
 
     with open(output_file, 'w') as fout:
         for sample in samples:
@@ -170,10 +174,8 @@ def main():
     random.seed(SEED)
     np.random.seed(SEED)
 
-    mle_dataset = NottinghamMLEDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
-    train_loader, valid_loader = SplitDataLoader(mle_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
-    nonoverlap_dataset = NottinghamNonOverlapDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, data_format="nums")
-    data_loader = DataLoader(nonoverlap_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    train_loader, valid_loader = SplitDataLoader(dataset, batch_size=BATCH_SIZE, drop_last=True).split()
 
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
@@ -230,7 +232,7 @@ def main():
             dscr_criterion = dscr_criterion.cuda()
         for i in range(DSCR_PRETRAIN_DATA_GENS):
             print('Creating real and fake datafiles ...')
-            create_generated_data_file(generator, BATCH_SIZE*len(data_loader), BATCH_SIZE, GEN_FILE)
+            create_generated_data_file(generator, len(data_loader), BATCH_SIZE, GEN_FILE)
             create_real_data_file(data_loader, REAL_FILE)
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for j in range(DSCR_PRETRAIN_EPOCHS):
@@ -251,7 +253,7 @@ def main():
     # create generated data file if it doesn't yet exist
     if not op.exists(GEN_FILE):
         print('Creating generated data file...')
-        create_generated_data_file(generator, BATCH_SIZE * len(data_loader), BATCH_SIZE, GEN_FILE)
+        create_generated_data_file(generator, len(data_loader), BATCH_SIZE, GEN_FILE)
 
     # Adversarial Training 
     print('#'*100)
@@ -260,13 +262,13 @@ def main():
 
     gen_gan_loss = GANLoss(use_cuda=args.cuda)
     gen_criterion = nn.NLLLoss(size_average=False)
-    gen_gan_optm = optim.Adam(generator.parameters(), lr=args.gen_learning_rate)
+    gen_gan_optm = optim.Adam(generator.parameters(), lr=args.adv_gen_learning_rate)
     if args.cuda and torch.cuda.is_available():
         gen_gan_loss = gen_gan_loss.cuda()
         gen_criterion = gen_criterion.cuda()
 
     dscr_criterion = nn.NLLLoss(size_average=False)
-    dscr_optimizer = optim.Adam(discriminator.parameters(), lr=args.dscr_learning_rate)
+    dscr_optimizer = optim.Adam(discriminator.parameters(), lr=args.adv_dscr_learning_rate)
     if args.cuda and torch.cuda.is_available():
         dscr_criterion = dscr_criterion.cuda()
 

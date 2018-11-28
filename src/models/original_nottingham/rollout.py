@@ -26,6 +26,7 @@ class Rollout(object):
             for l in range(1, seq_len + 1):
                 data_subseqs = data[:, :l]
                 samples = self.rollout_model.sample(batch_size, seq_len, data_subseqs)
+                # samples = self.model.sample(batch_size, seq_len, data_subseqs)
                 pred = discriminator(samples)
                 pred = pred.cpu().data[:, 1].numpy() # why cpu?
                 if i == 0:
@@ -52,7 +53,6 @@ class Rollout(object):
                 param.data = dic[name]
             else:
                 param.data = self.update_rate * param.data + (1 - self.update_rate) * dic[name]
-
         # for name, param in self.model.named_parameters():
         #     if name.startswith('embed'):
         #         continue
