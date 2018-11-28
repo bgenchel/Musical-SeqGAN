@@ -49,7 +49,7 @@ if torch.cuda.is_available() and (not args.no_cuda):
 
 # General Training Paramters
 SEED = 88 # for the randomizer
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
 GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
 VOCAB_SIZE = 89
@@ -102,9 +102,9 @@ def create_generated_data_file(model, num_samples, batch_size, output_file):
 def create_real_data_file(data_iter, output_file):
     samples = []
     data_iter = iter(data_iter)
-    for sample_batch in data_iter:
-        sample_batch = list(sample_batch.numpy())
-        samples.extend(sample_batch[0])
+    for (data, target) in data_iter:
+        sample_batch = list(target.numpy())
+        samples.extend(sample_batch)
 
     with open(output_file, 'w') as fout:
         for sample in samples:
@@ -137,8 +137,6 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
         optimizer.step()
 
     if type(model) == Discriminator:
-        # import pdb
-        # pdb.set_trace()
         return total_loss / total_batches
     else:
         return total_loss / total_words # weird measure ... to return
@@ -168,15 +166,15 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
     else:
         return total_loss / total_words # weird measure ... to return
 
-
 # definitely need to go through this still
 def main():
     random.seed(SEED)
     np.random.seed(SEED)
 
     dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    dataset2 = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
     train_loader, valid_loader = SplitDataLoader(dataset, batch_size=BATCH_SIZE, drop_last=True).split()
-
+    data_loader = DataLoader(dataset2, batch_size=BATCH_SIZE, drop_last=True, shuffle=True)
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
     discriminator = Discriminator(VOCAB_SIZE, dscr_embed_dim, dscr_filter_sizes, dscr_num_filters, dscr_num_classes, dscr_dropout)
@@ -282,15 +280,13 @@ def main():
             zeros = torch.zeros((BATCH_SIZE, 1)).type(torch.LongTensor)
             if args.cuda and torch.cuda.is_available():
                 zeros = zeros.cuda()
-            # import pdb
-            # pdb.set_trace()
             inputs = Variable(torch.cat([zeros, samples.data], dim=1)[:, :-1].contiguous())
             targets = Variable(samples.data)
 
             # calculate the reward
             rewards = rollout.get_reward(samples, NUM_ROLLOUTS, discriminator)
             rewards = Variable(torch.Tensor(rewards))
-            # rewards = torch.exp(rewards).contiguous().view((-1,))
+            rewards = torch.exp(rewards).contiguous().view((-1,))
             if args.cuda and torch.cuda.is_available():
                 rewards = rewards.cuda()
 

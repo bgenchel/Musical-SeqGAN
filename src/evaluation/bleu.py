@@ -9,15 +9,20 @@ class BleuScore:
     def __init__(self, sequence_len):
         self.seq_len = sequence_len
 
-    def evaluate_bleu_score(self, predictions, targets):
+    def evaluate_bleu_score(self, predictions, targets, ticks=False):
         """
         Given an array of predicted ticks and its ground truth, compute the BLEU score across 8 measure "sentences".
         :param predictions: an N x 38 numpy matrix, where N is the number of predicted ticks to evaluate
         :param targets: an N x 38 numpy matrix, where N is the number of target ticks to be evaluated against
         :return: the BLEU score across the corpus of predicted ticks
         """
-        ref_sentences = self._ticks_to_sentences(targets)
-        cand_sentences = self._ticks_to_sentences(predictions)
+        if ticks:
+            ref_sentences = self._ticks_to_sentences(targets)
+            cand_sentences = self._ticks_to_sentences(predictions)
+        else:
+            ref_sentences = [[str(x) for x in seq] for seq in predictions]
+            cand_sentences = [[str(x) for x in seq] for seq in targets]
+
         bleu_score = corpus_bleu([[l] for l in ref_sentences], cand_sentences)
         return bleu_score
 
