@@ -83,6 +83,9 @@ class MidiTicksDataset(Dataset):
                         formatted_measure = self._get_empty_ticks(96)
                         sequence += formatted_measure
 
+                # import pdb
+                # pdb.set_trace()
+                sequence = list(np.array(sequence).argmax(axis=1))
                 if target_type == "full_sequence":
                     target = sequence
                 else: # target_type == "next_step"
