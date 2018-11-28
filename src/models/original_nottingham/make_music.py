@@ -7,7 +7,7 @@ import torch
 from generator import Generator
 from reverse_pianoroll import piano_roll_to_pretty_midi
 
-model_dir = op.join('runs', 'Nov01-18_01:43:28')
+model_dir = op.join('runs', 'Nov27-18_14:16:33')
 model_inputs = json.load(open(op.join(model_dir, 'model_inputs.json'), 'r'))
 model_state = torch.load(op.join(model_dir, 'generator_state.pt'), map_location='cpu')
 gen = Generator(**model_inputs)
