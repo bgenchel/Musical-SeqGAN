@@ -30,21 +30,28 @@ class BleuScore:
 
         sentences = []
 
-        tick_ctr = 0
-        num_ticks = ticks.shape[0]
-        while tick_ctr < num_ticks:
-            if num_ticks - tick_ctr >= self.seq_len:
-                sentence_array = ticks[tick_ctr:tick_ctr + self.seq_len, :]
-            else:
-                sentence_array = ticks[tick_ctr:, :]
-
+        for seq in ticks:
             sentence = []
-            for i in range(sentence_array.shape[0]):
-                word = ''.join([str(x) for x in sentence_array[i, :]])
+            for i in range(seq.shape[0]):
+                word = ''.join([str(x) for x in seq[i, :]])
                 sentence.append(word)
-
             sentences.append(sentence)
 
-            tick_ctr += sentence_array.shape[0]
+        # tick_ctr = 0
+        # num_ticks = ticks.shape[0]
+        # while tick_ctr < num_ticks:
+        #     if num_ticks - tick_ctr >= self.seq_len:
+        #         sentence_array = ticks[tick_ctr:tick_ctr + self.seq_len, :]
+        #     else:
+        #         sentence_array = ticks[tick_ctr:, :]
+        #
+        #     sentence = []
+        #     for i in range(sentence_array.shape[0]):
+        #         word = ''.join([str(x) for x in sentence_array[i, :]])
+        #         sentence.append(word)
+        #
+        #     sentences.append(sentence)
+        #
+        #     tick_ctr += sentence_array.shape[0]
 
         return sentences
