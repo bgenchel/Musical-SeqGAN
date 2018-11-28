@@ -17,11 +17,10 @@ class Generator(nn.Module):
         self.num_layers = 1
 
         self.embedder = nn.Embedding(vocab_size, embed_dim)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, batch_first=True)
+        self.lstm = nn.LSTM(embed_dim, hidden_dim, self.num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_dim, vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
         self.init_params()
-
         return
 
     def init_params(self):

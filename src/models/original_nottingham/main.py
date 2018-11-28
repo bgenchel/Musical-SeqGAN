@@ -1,5 +1,5 @@
 """
-taken from https://github.com/ZiJianZhao/SeqGAN-PyTorch
+adapted from https://github.com/ZiJianZhao/SeqGAN-PyTorch
 """
 import argparse
 import json
@@ -15,7 +15,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from datetime import datetime
 from torch.autograd import Variable
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
 
 from generator import Generator
@@ -27,6 +27,8 @@ from data_iter import GenDataset, DscrDataset
 sys.path.append('../../data')
 from parsing.datasets import NottinghamDataset
 from loading.dataloaders import SplitDataLoader
+
+import pdb
 
 parser = argparse.ArgumentParser(description="Training Parameter")
 parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"), 
@@ -51,17 +53,18 @@ if torch.cuda.is_available() and (not args.no_cuda):
 SEED = 88 # for the randomizer
 BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
-GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
+NUM_SAMPLES = 20000 # num samples in the data files for training discriminator
+# GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
 VOCAB_SIZE = 89
 
 # Pretraining Paramters
 GEN_PRETRAIN_EPOCHS = 120 # original val: 120
-DSCR_PRETRAIN_DATA_GENS = 5
-DSCR_PRETRAIN_EPOCHS = 3
+DSCR_PRETRAIN_DATA_GENS = 10
+DSCR_PRETRAIN_EPOCHS = 6
 
 # Adversarial Training Params
 NUM_ROLLOUTS = 16
-G_STEPS = 1
+G_STEPS = 3
 D_DATA_GENS = 4
 D_STEPS = 2
 
@@ -86,12 +89,21 @@ dscr_dropout = 0.75
 dscr_num_classes = 2 
 
 
-def create_generated_data_file(model, num_samples, batch_size, output_file):
-    samples = []
-    for _ in range(num_samples // batch_size):
-        sample_batch = model.sample(batch_size, gen_seq_len).cpu().data.numpy().tolist() # why cpu?
-        samples.extend(sample_batch)
+def get_subset_dataloader(dataset):
+    try:
+        indices = random.sample(range(len(dataset)), NUM_SAMPLES)
+    except ValueError:
+        print("Number of samples to generate exceeds dataset size.")
 
+    return DataLoader(dataset, batch_size=BATCH_SIZE, sampler=SubsetRandomSampler(indices), drop_last=True)
+
+
+def create_generated_data_file(model, num_batches, output_file):
+    samples = []
+    for _ in range(num_batches):
+        sample_batch = model.sample(BATCH_SIZE, gen_seq_len).cpu().data.numpy().tolist() # why cpu?
+        samples.extend(sample_batch)
+    
     with open(output_file, 'w') as fout:
         for sample in samples:
             str_sample = ' '.join([str(s) for s in sample])
@@ -137,7 +149,7 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
         optimizer.step()
 
     if type(model) == Discriminator:
-        return total_loss / total_batches
+        return total_loss / (total_batches * BATCH_SIZE)
     else:
         return total_loss / total_words # weird measure ... to return
 
@@ -171,10 +183,9 @@ def main():
     random.seed(SEED)
     np.random.seed(SEED)
 
+    pretrain_dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
     dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
-    dataset2 = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
-    train_loader, valid_loader = SplitDataLoader(dataset, batch_size=BATCH_SIZE, drop_last=True).split()
-    data_loader = DataLoader(dataset2, batch_size=BATCH_SIZE, drop_last=True, shuffle=True)
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
     discriminator = Discriminator(VOCAB_SIZE, dscr_embed_dim, dscr_filter_sizes, dscr_num_filters, dscr_num_classes, dscr_dropout)
@@ -230,7 +241,8 @@ def main():
             dscr_criterion = dscr_criterion.cuda()
         for i in range(DSCR_PRETRAIN_DATA_GENS):
             print('Creating real and fake datafiles ...')
-            create_generated_data_file(generator, len(data_loader), BATCH_SIZE, GEN_FILE)
+            data_loader = get_subset_dataloader(dataset)
+            create_generated_data_file(generator, len(data_loader), GEN_FILE)
             create_real_data_file(data_loader, REAL_FILE)
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for j in range(DSCR_PRETRAIN_EPOCHS):
@@ -243,6 +255,7 @@ def main():
                     'loss': loss,
                     'datetime': datetime.now().isoformat()}, PT_DSCR_MODEL_FILE)
 
+    data_loader = get_subset_dataloader(dataset)
     # create real data file if it doesn't yet exist
     if not op.exists(REAL_FILE):
         print('Creating real data file...')
@@ -251,7 +264,7 @@ def main():
     # create generated data file if it doesn't yet exist
     if not op.exists(GEN_FILE):
         print('Creating generated data file...')
-        create_generated_data_file(generator, len(data_loader), BATCH_SIZE, GEN_FILE)
+        create_generated_data_file(generator, len(data_loader), GEN_FILE)
 
     # Adversarial Training 
     print('#'*100)
@@ -291,7 +304,8 @@ def main():
                 rewards = rewards.cuda()
 
             prob = generator.forward(inputs)
-            train_loss = gen_gan_loss(prob, targets, rewards)
+            # train_loss = gen_gan_loss(prob, targets, rewards)
+            train_loss = gen_gan_loss(prob, targets, rewards) / BATCH_SIZE # from suragnair/seqGAN
             print('Adv Epoch [%d], Gen Step [%d] - Train Loss: %f' % (epoch, gstep, train_loss))
             gen_gan_optm.zero_grad()
             train_loss.backward()
@@ -302,7 +316,9 @@ def main():
             rollout.update_params()
         
         for data_gen in range(D_DATA_GENS):
-            create_generated_data_file(generator, GENERATED_NUM, BATCH_SIZE, GEN_FILE)
+            data_loader = get_subset_dataloader(dataset)
+            create_generated_data_file(generator, len(data_loader), GEN_FILE)
+            create_real_data_file(data_loader, GEN_FILE)
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for dstep in range(D_STEPS):
                 loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
