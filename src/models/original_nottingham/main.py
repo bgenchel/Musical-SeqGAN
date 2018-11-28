@@ -64,15 +64,17 @@ DSCR_PRETRAIN_EPOCHS = 6
 
 # Adversarial Training Params
 NUM_ROLLOUTS = 16
-G_STEPS = 3
+G_STEPS = 1
 D_DATA_GENS = 4
 D_STEPS = 2
 
 # Paths
-REAL_FILE = op.join('temp_data', 'real.data')
-GEN_FILE = op.join('temp_data', 'generated.data')
-PT_GEN_MODEL_FILE = op.join('pretrained', 'generator.pt')
-PT_DSCR_MODEL_FILE = op.join('pretrained', 'discriminator.pt')
+TEMP_DATA_DIR = 'temp_data'
+PT_DIR = 'pretrained'
+REAL_FILE = op.join(TEMP_DATA_DIR, 'real.data')
+GEN_FILE = op.join(TEMP_DATA_DIR, 'generated.data')
+PT_GEN_MODEL_FILE = op.join(PT_DIR, 'generator.pt')
+PT_DSCR_MODEL_FILE = op.join(PT_DIR, 'discriminator.pt')
 
 # Generator Model Params
 gen_embed_dim = 64
@@ -180,6 +182,12 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
 
 # definitely need to go through this still
 def main():
+    pt_gen_train_loss = []
+    pt_gen_valid_loss = []
+    pt_dscr_loss = [] 
+    adv_gen_loss = []
+    adv_dscr_loss = []
+
     random.seed(SEED)
     np.random.seed(SEED)
 
@@ -212,8 +220,10 @@ def main():
             gen_criterion = gen_criterion.cuda()
         for epoch in range(GEN_PRETRAIN_EPOCHS):
             train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type)
+            pt_gen_train_loss.append(train_loss)
             print('::PRETRAIN GEN:: Epoch [%d] Training Loss: %f'% (epoch, train_loss))
             valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
+            pt_gen_valid_loss.append(valid_loss)
             print('::PRETRAIN GEN:: Epoch [%d] Validation Loss: %f'% (epoch, valid_loss))
             if valid_loss < min_valid_loss:
                 min_valid_loss = valid_loss
@@ -223,6 +233,8 @@ def main():
                             'train_loss': train_loss,
                             'valid_loss': valid_loss,
                             'datetime': datetime.now().isoformat()}, PT_GEN_MODEL_FILE)
+        torch.save({'train_losses': pt_gen_train_loss,
+                    'valid_losses': pt_gen_valid_loss}, op.join(PT_DIR, 'generator_losses.pt'))
 
     # Pretrain Discriminator
     if not args.force_pretrain and op.exists(PT_DSCR_MODEL_FILE):
@@ -247,13 +259,16 @@ def main():
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for j in range(DSCR_PRETRAIN_EPOCHS):
                 loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
+                pt_dscr_loss.append(loss)
                 print('::PRETRAIN DSCR:: Data Gen [%d] Epoch [%d] Loss: %f' % (i, j, loss))
+
         print('Caching Pretrained Discriminator ...')
         torch.save({'state_dict': discriminator.state_dict(),
                     'data_gens': DSCR_PRETRAIN_DATA_GENS,
                     'epochs': DSCR_PRETRAIN_EPOCHS,
                     'loss': loss,
                     'datetime': datetime.now().isoformat()}, PT_DSCR_MODEL_FILE)
+        torch.save({'losses': pt_dscr_loss}, op.join(PT_DIR, 'discriminator_losses.pt'))
 
     data_loader = get_subset_dataloader(dataset)
     # create real data file if it doesn't yet exist
@@ -285,6 +300,7 @@ def main():
 
     for epoch in range(GAN_TRAIN_EPOCHS):
         print("#"*30 + "\nAdversarial Epoch [%d]\n" % epoch + "#"*30)
+        total_gen_loss = 0.0
         for gstep in range(G_STEPS):
             ## Train the generator G_STEPS
             samples = generator.sample(BATCH_SIZE, gen_seq_len)
@@ -306,6 +322,7 @@ def main():
             prob = generator.forward(inputs)
             # train_loss = gen_gan_loss(prob, targets, rewards)
             train_loss = gen_gan_loss(prob, targets, rewards) / BATCH_SIZE # from suragnair/seqGAN
+            total_gen_loss += train_loss
             print('Adv Epoch [%d], Gen Step [%d] - Train Loss: %f' % (epoch, gstep, train_loss))
             gen_gan_optm.zero_grad()
             train_loss.backward()
@@ -314,7 +331,10 @@ def main():
             valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
             print('Adv Epoch [%d], Gen Step [%d] - Valid Loss: %f' % (epoch, gstep, valid_loss))
             rollout.update_params()
+
+        adv_gen_loss.append(total_gen_loss / G_STEPS)
         
+        total_dscr_loss = 0.0
         for data_gen in range(D_DATA_GENS):
             data_loader = get_subset_dataloader(dataset)
             create_generated_data_file(generator, len(data_loader), GEN_FILE)
@@ -322,7 +342,9 @@ def main():
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
             for dstep in range(D_STEPS):
                 loss = train_epoch(discriminator, dscr_data_iter, dscr_criterion, dscr_optimizer, args.train_type)
+                total_dscr_loss += loss
                 print('Adv Epoch [%d], Dscr Gen [%d], Dscr Step [%d] - Loss: %f' % (epoch, data_gen, dstep, loss))
+        adv_dscr_loss.append(total_dscr_loss / (D_DATA_GENS * D_STEPS))
 
     run_dir = op.join("runs", datetime.now().strftime('%b%d-%y_%H:%M:%S'))
     if not op.exists(run_dir):
@@ -331,9 +353,12 @@ def main():
     model_inputs = {'vocab_size': VOCAB_SIZE,
                     'embed_dim': gen_embed_dim,
                     'hidden_dim': gen_hidden_dim,
-                    'use_cuda': args.use_cuda}
+                    'use_cuda': args.cuda}
+
     json.dump(model_inputs, open(op.join(run_dir, 'model_inputs.json'), 'w'), indent=4)
     torch.save(generator.state_dict(), op.join(run_dir, 'generator_state.pt'))
+
+    torch.save({'adv_gen_losses': adv_gen_loss, 'adv_dscr_losses': adv_dscr_loss}, op.join(run_dir, 'losses.pt'))
 
 if __name__ == '__main__':
     main()
