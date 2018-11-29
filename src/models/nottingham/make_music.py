@@ -2,10 +2,13 @@ import json
 import os
 import os.path as op
 import numpy as np
+import pathlib
+import src
 import torch
 
-from generator import Generator
-from reverse_pianoroll import piano_roll_to_pretty_midi
+
+src.path.append(str(Path(__file__).parents[2]))
+from utils.reverse_pianoroll import piano_roll_to_pretty_midi
 
 def main():
     model_dir = op.join('runs', 'Nov27-18_14:16:33')

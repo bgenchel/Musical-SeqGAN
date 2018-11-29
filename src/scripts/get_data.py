@@ -2,6 +2,8 @@ from urllib.request import urlretrieve
 import os
 import os.path as op
 import zipfile
+from pathlib import Path
+
 
 S3_BUCKET = "https://s3.amazonaws.com/rytrose-personal-website/"
 
@@ -30,7 +32,7 @@ def get_nottingham():
 
 
 def get_bebop():
-    bebop_path = "data/processed/songs"
+    bebop_path = op.join(Path(__file__).parents[2], "data", "processed", "songs")
     bebop_zip_name = "bebop-incomplete.zip"
     if op.exists(bebop_path):
         print("Bebop exists.")

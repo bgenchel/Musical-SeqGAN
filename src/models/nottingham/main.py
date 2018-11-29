@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from datetime import datetime
+from pathlib import Path
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
@@ -24,9 +25,9 @@ from rollout import Rollout
 from gan_loss import GANLoss
 from data_iter import GenDataset, DscrDataset
 
-sys.path.append('../../data')
-from parsing.datasets import NottinghamDataset
-from loading.dataloaders import SplitDataLoader
+sys.path.append(op.join(Path(__file__).parents[2]))
+from utils.data.datasets import NottinghamDataset
+from utils.data.dataloaders import SplitDataLoader
 
 import pdb
 
@@ -42,19 +43,19 @@ parser.add_argument('-adlr', '--adv_dscr_learning_rate', default=1e-3, type=floa
 parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', 
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
 parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
+parser.add_argument('-cd', '--cuda_device', default=0, type=int, help="Which GPU to use")
 args = parser.parse_args()
 
 args.cuda = False
 if torch.cuda.is_available() and (not args.no_cuda):
-    torch.cuda.set_device(0) # just default it for now, maybe change later
+    torch.cuda.set_device(args.cpu) # just default it for now
     args.cuda = True
 
 # General Training Paramters
-SEED = 88 # for the randomizer
+SEED = 88 # for the randomize
 BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
 NUM_SAMPLES = 5000 # num samples in the data files for training discriminator
-# GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
 VOCAB_SIZE = 89
 
 # Pretraining Paramters
