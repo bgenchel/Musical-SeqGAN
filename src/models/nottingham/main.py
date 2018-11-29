@@ -26,11 +26,12 @@ from rollout import Rollout
 from gan_loss import GANLoss
 from data_iter import GenDataset, DscrDataset
 
+import pdb
+pdb.set_trace()
+
 sys.path.append(op.join(Path(__file__).parents[2]))
 from utils.data.datasets import NottinghamDataset
 from utils.data.dataloaders import SplitDataLoader
-
-import pdb
 
 parser = argparse.ArgumentParser(description="Training Parameter")
 parser.add_argument('-tt', '--train_type', choices=("full_sequence", "next_step"), 
