@@ -7,6 +7,9 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 class Generator(nn.Module):
+    """
+    Simple 1-layer LSTM-RNN for sequence generation
+    """
     def __init__(self, vocab_size, embed_dim, hidden_dim, use_cuda=True, **kwargs):
         super(Generator, self).__init__(**kwargs)
         # the number of discrete values an input can take on
@@ -43,6 +46,7 @@ class Generator(nn.Module):
         pred = self.softmax(self.fc(lstm_out.contiguous()))
         return pred
 
+    # a tool used for sampling; takes a hidden and cell state, and input and gives the next step
     def single_step(self, x, hidden, cell):
         """
         Args:
@@ -58,18 +62,9 @@ class Generator(nn.Module):
 
     def sample(self, batch_size, seq_len, seed=None):
         """
-        why would you need batch size ... for this method. Seems weird.
-
         this method creates (batch_size) sequences of length (seq_len).
         If no seed is provided, it begins with a single time step of length 0.
         If a seed is provided, it generates seq_len - seed_len samples.
-
-        generation in this method happens one step at a time, in the very inefficient way
-        that totally avoids batching. When a seed is provided, this method literally chunks
-        each timestep into its own tensor so it can operate this way.
-
-        I get that this has to work this way for no seed, but feel like maybe it isn't
-        necessary when a seed is provided.
         """
         samples = []
         hidden, cell = self.init_hidden_and_cell(batch_size)
@@ -79,8 +74,6 @@ class Generator(nn.Module):
             if self.use_cuda:
                 inpt = inpt.cuda()
             for i in range(seq_len):
-                # import pdb
-                # pdb.set_trace()
                 output, hidden, cell = self.single_step(inpt, hidden, cell)
                 inpt = output.multinomial(1) # sample the softmax distribution once
                 samples.append(inpt)
