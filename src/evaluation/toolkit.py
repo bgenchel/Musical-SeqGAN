@@ -25,7 +25,10 @@ class MGEval:
         else:
             self.num_samples = pred_samples
 
+        self.num_samples = 100
+
         self.metrics = core.metrics()
+        print(len(self.pred_set))
 
     def get_metric(self, metric_name, pred_metric_shape, target_metric_shape):
         pred_metric = np.zeros((self.num_samples, ) + pred_metric_shape)
@@ -66,7 +69,6 @@ class MGEval:
     def visualize(self, metric_name, pred_intra, target_intra, inter):
         for measurement, label in zip([pred_intra, target_intra, inter], ["pred_intra", "target_intra", "inter"]):
             tranposed = np.transpose(measurement, (1, 0, 2)).reshape(1, -1)
-            pdb.set_trace()
             sns.kdeplot(tranposed[0], label=label)
 
         plt.title(metric_name)
@@ -92,8 +94,8 @@ class MGEval:
 
 # Testing
 if __name__ == "__main__":
-    mge = MGEval("../models/original_nottingham/eval_pred",  "../models/original_nottingham/eval_target")
-    pred_metric, target_metric = mge.get_metric("total_used_pitch", (1,), (1,))
+    mge = MGEval("../models/original_nottingham/eval_ref", "../models/original_nottingham/eval_adv")
+    pred_metric, target_metric = mge.get_metric("avg_pitch_shift", (1,), (1,))
     inter = mge.inter_set_cross_validation(pred_metric, target_metric)
     pred_intra, target_intra = mge.intra_set_cross_validation(pred_metric, target_metric)
-    mge.visualize("total_used_pitch", pred_intra, target_intra, inter)
+    mge.visualize("avg_pitch_shift", pred_intra, target_intra, inter)

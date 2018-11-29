@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 
 import pdb
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
+from make_music import sequence_to_midi
 from data.parsing.datasets import NottinghamDataset
 from evaluation.bleu import BleuScore
 from generator import Generator
@@ -28,7 +29,7 @@ def main():
     pretrained.cuda()
     pretrained.load_state_dict(torch.load(op.join('pretrained', 'generator.pt'), map_location='cpu')['state_dict'])
     fully_trained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=True)
-    fully_trained.load_state_dict(torch.load(op.join('runs', 'Nov27-18_14:16:33', 'generator_state.pt'), map_location='cpu'))
+    fully_trained.load_state_dict(torch.load(op.join('runs', 'Nov28-18_15:40:28', 'generator_state.pt'), map_location='cpu'))
     fully_trained.cuda()
 
     pt_preds = []
@@ -36,7 +37,6 @@ def main():
     targets = []
     print("Generating Predictions ... ")
     for (data, target) in tqdm(dataloader):
-        pdb.set_trace()
         if torch.cuda.is_available():
             data = data.cuda()
             target = target.cuda()
@@ -55,6 +55,36 @@ def main():
     print("BLEU Score for pretrained generator: {}".format(pt_bleu))
     print("BLEU Score for fully_trained generator: {}".format(ft_bleu))
 
+def render_midi():
+    print("Loading Data ... ")
+    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=SEQ_LEN, data_format="nums")
+    dataloader = DataLoader(dataset, batch_size=128, drop_last=True, shuffle=True)
+    pretrained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=True)
+    pretrained.cuda()
+    pretrained.load_state_dict(torch.load(op.join('pretrained', 'generator.pt'), map_location='cpu')['state_dict'])
+    fully_trained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=True)
+    fully_trained.load_state_dict(
+        torch.load(op.join('runs', 'Nov28-18_15:40:28', 'generator_state.pt'), map_location='cpu'))
+    fully_trained.cuda()
+
+    pt_preds = []
+    ft_preds = []
+    targets = []
+    print("Generating Predictions ... ")
+    for (data, target) in tqdm(dataloader):
+        if torch.cuda.is_available():
+            data = data.cuda()
+            target = target.cuda()
+        pt_pred = pretrained.forward(data).argmax(2)
+        ft_pred = fully_trained.forward(data).argmax(2)
+        pt_preds.extend(listify(pt_pred))
+        ft_preds.extend(listify(ft_pred))
+        targets.extend(listify(target))
+
+    for i in tqdm(range(len(targets))):
+        sequence_to_midi("eval_pre/" + str(i) + "_pre.mid", pt_preds[i])
+        sequence_to_midi("eval_adv/" + str(i) + "_adv.mid", ft_preds[i])
+
 
 if __name__ == '__main__':
-    main()
+    render_midi()

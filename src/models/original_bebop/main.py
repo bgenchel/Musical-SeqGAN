@@ -97,6 +97,7 @@ def get_subset_dataloader(dataset):
         indices = random.sample(range(len(dataset)), NUM_SAMPLES)
     except ValueError:
         print("Number of samples to generate exceeds dataset size.")
+        indices = random.sample(range(len(dataset)), len(dataset))
 
     return DataLoader(dataset, batch_size=BATCH_SIZE, sampler=SubsetRandomSampler(indices), drop_last=True)
 
@@ -191,7 +192,8 @@ def main():
             hop_size=HOP_SIZE, target_type=args.train_type)
     train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
     dataset = MidiTicksDataset('../../../data/processed/songs', measures_per_seq=MEASURES_PER_SEQ,
-            hop_size=HOP_SIZE, target_type=args.train_type, drop_last=True)
+            hop_size=HOP_SIZE, target_type=args.train_type)
+
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
     discriminator = Discriminator(VOCAB_SIZE, dscr_embed_dim, dscr_filter_sizes, dscr_num_filters, dscr_num_classes, dscr_dropout)
@@ -303,6 +305,7 @@ def main():
             targets = Variable(samples.data)
 
             # calculate the reward
+            print(len(samples))
             rewards = rollout.get_reward(samples, NUM_ROLLOUTS, discriminator)
             rewards = Variable(torch.Tensor(rewards))
             rewards = torch.exp(rewards).contiguous().view((-1,))

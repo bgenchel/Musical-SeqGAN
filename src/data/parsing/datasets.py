@@ -29,7 +29,7 @@ class MidiTicksDataset(Dataset):
                 the last tick of the input sequence
         """
         print("INIT")
-        super().__init__(**kwargs)
+        super().__init__()
 
         if not op.exists(load_dir):
             raise Exception("Data directory does not exist.")
@@ -83,18 +83,16 @@ class MidiTicksDataset(Dataset):
                         formatted_measure = self._get_empty_ticks(96)
                         sequence += formatted_measure
 
-                # import pdb
-                # pdb.set_trace()
                 sequence = list(np.array(sequence).argmax(axis=1))
-                if target_type == "full_sequence":
-                    target = sequence
-                else: # target_type == "next_step"
-                    target = sequence[-1]
-
                 self.sequences.append(sequence)
-                self.targets.append(target)
 
                 sequence_start += hop_size
+
+        if target_type == "full_sequence":
+            self.targets = self.sequences[-1:] + self.sequences[:-1]
+        else:  # target_type == "next_step"
+            print("NOT full_sequence NOT IMPLEMENTED FOR MIDITICKS")
+            self.targets = None
 
     def __len__(self):
         """
@@ -109,7 +107,9 @@ class MidiTicksDataset(Dataset):
         :param index: the index of the sequence and target to fetch
         :return: the sequence and target at the specified index
         """
-        return torch.from_numpy(np.array(self.sequences[index])), torch.from_numpy(np.array(self.targets[index]))
+        sequence = torch.from_numpy(np.array(self.sequences[index]))
+        target = torch.from_numpy(np.array(self.targets[index]))
+        return sequence[:96*4], target[:96*4]
 
     def _get_none_harmony(self):
         """

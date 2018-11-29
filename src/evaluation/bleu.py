@@ -1,4 +1,5 @@
-from nltk.translate.bleu_score import corpus_bleu
+from nltk.translate.bleu_score import corpus_bleu, sentence_bleu
+from tqdm import tqdm
 
 TICKS_PER_BEAT = 24
 TICKS_PER_MEASURE = 4 * TICKS_PER_BEAT
@@ -9,7 +10,7 @@ class BleuScore:
     def __init__(self, sequence_len):
         self.seq_len = sequence_len
 
-    def evaluate_bleu_score(self, predictions, targets, ticks=False):
+    def evaluate_bleu_score(self, predictions, targets, ticks=False, corpus=True):
         """
         Given an array of predicted ticks and its ground truth, compute the BLEU score across 8 measure "sentences".
         :param predictions: an N x 38 numpy matrix, where N is the number of predicted ticks to evaluate
@@ -23,7 +24,20 @@ class BleuScore:
             ref_sentences = [[str(x) for x in seq] for seq in predictions]
             cand_sentences = [[str(x) for x in seq] for seq in targets]
 
-        bleu_score = corpus_bleu([[l] for l in ref_sentences], cand_sentences)
+        if corpus:
+            bleu_score = corpus_bleu([[l] for l in ref_sentences], cand_sentences)
+        else:
+            bleu_score = 0.0
+            num_sentences = 0
+
+            for i in tqdm(range(len(ref_sentences))):
+                sentence_bleu_score = sentence_bleu(ref_sentences[i], cand_sentences[i])
+                print(sentence_bleu_score)
+                bleu_score += sentence_bleu_score
+                num_sentences += 1
+
+            bleu_score /= num_sentences
+
         return bleu_score
 
     def _ticks_to_sentences(self, ticks):
