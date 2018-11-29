@@ -19,7 +19,6 @@ dependencies:
   - enum34=1.1.6
   - expat=2.2.6
   - fontconfig=2.12.1
-  - freetype=2.5.5
   - functools32=3.2.3.2
   - futures=3.2.0
   - glib=2.56.2
@@ -47,7 +46,6 @@ dependencies:
   - libpng=1.6.35
   - libsodium=1.0.16
   - libuuid=1.0.3
-  - libxml2=2.9.8
   - markupsafe=1.1.0
   - matplotlib=1.5.1
   - mistune=0.8.4
@@ -72,7 +70,6 @@ dependencies:
   - prometheus_client=0.4.2
   - prompt_toolkit=1.0.15
   - ptyprocess=0.6.0
-  - pycairo=1.13.3
   - pygments=2.2.0
   - pyparsing=2.3.0
   - pyqt=4.11.4
