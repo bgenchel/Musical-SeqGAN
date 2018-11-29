@@ -17,6 +17,7 @@ from datetime import datetime
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
+import warnings
 
 from generator import Generator
 from discriminator import Discriminator
@@ -42,11 +43,13 @@ parser.add_argument('-adlr', '--adv_dscr_learning_rate', default=1e-3, type=floa
 parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_true', 
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
 parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
+parser.add_argument('-W', '--suppress_warnings', action='store_true', help="suppress warnings")
+
 args = parser.parse_args()
 
 args.cuda = False
 if torch.cuda.is_available() and (not args.no_cuda):
-    torch.cuda.set_device(0) # just default it for now, maybe change later
+    torch.cuda.set_device(0)
     args.cuda = True
 
 # General Training Paramters
@@ -54,11 +57,10 @@ SEED = 88 # for the randomizer
 BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
 NUM_SAMPLES = 5000 # num samples in the data files for training discriminator
-# GENERATED_NUM = 10000 # number of samples for the generator to generate in order to train the discriminator
 VOCAB_SIZE = 89
 
 # Pretraining Paramters
-GEN_PRETRAIN_EPOCHS = 120 # original val: 120
+GEN_PRETRAIN_EPOCHS = 120
 DSCR_PRETRAIN_DATA_GENS = 10
 DSCR_PRETRAIN_EPOCHS = 6
 
@@ -86,8 +88,6 @@ dscr_embed_dim = 128
 dscr_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
 dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
 dscr_dropout = 0.75
-# why not just have one class that indicates probability of being real with a sigmoid
-# output? The probability between two classes should just sum to 1 anyways
 dscr_num_classes = 2 
 
 
@@ -103,7 +103,7 @@ def get_subset_dataloader(dataset):
 def create_generated_data_file(model, num_batches, output_file):
     samples = []
     for _ in range(num_batches):
-        sample_batch = model.sample(BATCH_SIZE, gen_seq_len).cpu().data.numpy().tolist() # why cpu?
+        sample_batch = model.sample(BATCH_SIZE, gen_seq_len).cpu().data.numpy().tolist()
         samples.extend(sample_batch)
     
     with open(output_file, 'w') as fout:
@@ -129,14 +129,14 @@ def create_real_data_file(data_iter, output_file):
 
 def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
     total_loss = 0.0
-    total_words = 0.0 # ???
+    total_words = 0.0
     total_batches = 0.0
     for (data, target) in tqdm(data_iter, desc=' - Training', leave=False):
         data_var = Variable(data)
         target_var = Variable(target)
         if args.cuda and torch.cuda.is_available():
             data_var, target_var = data_var.cuda(), target_var.cuda()
-        target_var = target_var.contiguous().view(-1) # serialize the target into a contiguous vector ?
+        target_var = target_var.contiguous().view(-1)
         pred = model.forward(data_var)
         if train_type == "full_sequence":
             pred = pred.view(-1, pred.size()[-1])
@@ -153,7 +153,7 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
     if type(model) == Discriminator:
         return total_loss / (total_batches * BATCH_SIZE)
     else:
-        return total_loss / total_words # weird measure ... to return
+        return total_loss / total_words
 
 
 def eval_epoch(model, data_iter, loss_fn, train_type):
@@ -165,7 +165,7 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
             target_var = Variable(target)
             if args.cuda and torch.cuda.is_available():
                 data_var, target_var = data_var.cuda(), target_var.cuda()
-            target_var = target_var.contiguous().view(-1) # serialize the target into a contiguous vector ?
+            target_var = target_var.contiguous().view(-1)
             pred = model.forward(data_var)
             if train_type == "full_sequence":
                 pred = pred.view(-1, pred.size()[-1])
@@ -178,9 +178,8 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
     if type(model) == Discriminator:
         return total_loss / total_batches
     else:
-        return total_loss / total_words # weird measure ... to return
+        return total_loss / total_words
 
-# definitely need to go through this still
 def main():
     pt_gen_train_loss = []
     pt_gen_valid_loss = []
@@ -361,4 +360,8 @@ def main():
     torch.save({'adv_gen_losses': adv_gen_loss, 'adv_dscr_losses': adv_dscr_loss}, op.join(run_dir, 'losses.pt'))
 
 if __name__ == '__main__':
-    main()
+    if args.suppress_warnings:
+        with warnings.catch_warnings():
+            main()
+    else:
+        main()
