@@ -26,7 +26,8 @@ from rollout import Rollout
 from gan_loss import GANLoss
 from data_iter import GenDataset, DscrDataset
 
-sys.path.append(op.join(Path(__file__).parents[2]))
+print(str(Path(op.abspath(__file__)).parents[2]))
+sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
 from utils.data.datasets import NottinghamDataset
 from utils.data.dataloaders import SplitDataLoader
 
@@ -45,7 +46,7 @@ parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_tru
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
 parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
 parser.add_argument('-cd', '--cuda_device', default=0, type=int, help="Which GPU to use")
-parser.add_argument('-W', '--suppress_warnings', action='store_true', help="suppress warnings")
+parser.add_argument('-w', '--suppress_warnings', action='store_true', help="suppress warnings")
 args = parser.parse_args()
 
 args.cuda = False
@@ -60,7 +61,7 @@ GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
 NUM_SAMPLES = 5000 # num samples in the data files for training discriminator
 VOCAB_SIZE = 89
 
-# Pretraining Paramters
+# Pretraining Params
 GEN_PRETRAIN_EPOCHS = 120
 DSCR_PRETRAIN_DATA_GENS = 10
 DSCR_PRETRAIN_EPOCHS = 6
@@ -92,6 +93,9 @@ dscr_dropout = 0.75
 dscr_num_classes = 2 
 
 
+# This method allows us to train the model stochastically, as opposed to training over the full dataset, which
+# for nottingham is over 170K samples. Each time we need a new real.data file, we first get
+# a new dataloader using this method, that has a new set of NUM_SAMPLES random samples from the original dataset.
 def get_subset_dataloader(dataset):
     try:
         indices = random.sample(range(len(dataset)), NUM_SAMPLES)
@@ -101,6 +105,7 @@ def get_subset_dataloader(dataset):
     return DataLoader(dataset, batch_size=BATCH_SIZE, sampler=SubsetRandomSampler(indices), drop_last=True)
 
 
+# Generates `num_batches` batches of size BATCH_SIZE from the generator. Stores the data in `output_file`
 def create_generated_data_file(model, num_batches, output_file):
     samples = []
     for _ in range(num_batches):
@@ -114,6 +119,7 @@ def create_generated_data_file(model, num_batches, output_file):
     return
 
 
+# Iterates through `data_iter` and stores all its targets in `output_file`.
 def create_real_data_file(data_iter, output_file):
     samples = []
     data_iter = iter(data_iter)
@@ -128,6 +134,9 @@ def create_real_data_file(data_iter, output_file):
     return
 
 
+# trains `model` for one epoch using data from `data_iter`. train_type refers to the option of training the model
+# using either 'full sequence' or 'next step' (teacher forcing). For this model, we only use full sequence training
+# because it is how it was done in the original.
 def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
     total_loss = 0.0
     total_words = 0.0
@@ -157,6 +166,7 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
         return total_loss / total_words
 
 
+# evaluate `model`'s performance on data from `data_iter`. See above for train_type.
 def eval_epoch(model, data_iter, loss_fn, train_type):
     total_loss = 0.0
     total_words = 0.0
@@ -181,28 +191,40 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
     else:
         return total_loss / total_words
 
+
 def main():
+    # for keeping track of loss curves so we can plot them later
     pt_gen_train_loss = []
     pt_gen_valid_loss = []
     pt_dscr_loss = [] 
     adv_gen_loss = []
     adv_dscr_loss = []
 
+    # set random seeds
     random.seed(SEED)
     np.random.seed(SEED)
 
+    # Load data
+    # We load the dataset twice because, while a train and validation split is useful for MLE, we don't want to exclude
+    # data points when generating a sample for the discriminator. 
     pretrain_dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
     train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
     dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
     discriminator = Discriminator(VOCAB_SIZE, dscr_embed_dim, dscr_filter_sizes, dscr_num_filters, dscr_num_classes, dscr_dropout)
 
+    # set CUDA
     if args.cuda and torch.cuda.is_available():
         generator = generator.cuda()
         discriminator = discriminator.cuda()
 
-    # Pretrain Generator using MLE
+    #######################################
+    # Pre-Training
+    #######################################
+    # Pretrain and save Generator using MLE, Load the Pretrained generator and display training stats 
+    # if it already exists.
     if not args.force_pretrain and op.exists(PT_GEN_MODEL_FILE):
         print('Loading Pretrained Generator ...')
         checkpoint = torch.load(PT_GEN_MODEL_FILE)
@@ -236,7 +258,8 @@ def main():
         torch.save({'train_losses': pt_gen_train_loss,
                     'valid_losses': pt_gen_valid_loss}, op.join(PT_DIR, 'generator_losses.pt'))
 
-    # Pretrain Discriminator
+    # Pretrain Discriminator on real data and data from the pretrained generator. If a pretrained Discriminator
+    # already exists, load it and display its stats
     if not args.force_pretrain and op.exists(PT_DSCR_MODEL_FILE):
         print("Loading Pretrained Discriminator ...")
         checkpoint = torch.load(PT_DSCR_MODEL_FILE)
@@ -281,11 +304,16 @@ def main():
         print('Creating generated data file...')
         create_generated_data_file(generator, len(data_loader), GEN_FILE)
 
+    #######################################
     # Adversarial Training 
+    #######################################
     print('#'*100)
     print('Start Adversarial Training...\n')
-    rollout = Rollout(generator, 0.8)
-
+    # Instantiate the Rollout. Give it the generator so it can make its own internal copy of it 
+    # which will only update `update_rate` of the full generator's update at each step
+    rollout = Rollout(generator, update_rate=0.8)
+    
+    # Instantiate GANLoss and new optimizer for the generator with new learning rate.
     gen_gan_loss = GANLoss(use_cuda=args.cuda)
     gen_criterion = nn.NLLLoss(size_average=False)
     gen_gan_optm = optim.Adam(generator.parameters(), lr=args.adv_gen_learning_rate)
@@ -293,47 +321,60 @@ def main():
         gen_gan_loss = gen_gan_loss.cuda()
         gen_criterion = gen_criterion.cuda()
 
+    # Instantiate new loss and optimizer for the discriminator with new learning rate.
     dscr_criterion = nn.NLLLoss(size_average=False)
     dscr_optimizer = optim.Adam(discriminator.parameters(), lr=args.adv_dscr_learning_rate)
     if args.cuda and torch.cuda.is_available():
         dscr_criterion = dscr_criterion.cuda()
 
+    # Train Adversarially for `GAN_TRAIN_EPOCHS` epochs
     for epoch in range(GAN_TRAIN_EPOCHS):
         print("#"*30 + "\nAdversarial Epoch [%d]\n" % epoch + "#"*30)
         total_gen_loss = 0.0
+        ## Train the generator for G_STEPS
         for gstep in range(G_STEPS):
-            ## Train the generator G_STEPS
+            # Generate a batch of sequences
             samples = generator.sample(BATCH_SIZE, gen_seq_len)
 
-            # construct the input to the genrator, add zeros before samples and delete the last column
+            # Construct a corresponding input step for the sequences: 
+            # add a timestep of zeros before samples and then delete its last column.
             zeros = torch.zeros((BATCH_SIZE, 1)).type(torch.LongTensor)
             if args.cuda and torch.cuda.is_available():
                 zeros = zeros.cuda()
             inputs = Variable(torch.cat([zeros, samples.data], dim=1)[:, :-1].contiguous())
             targets = Variable(samples.data)
 
-            # calculate the reward
+            # Calculate rewards for generator state using monte carlo rollout
+            # rewards are equal to the average (over all rollouts) of the discriminator's likelihood of realism score
             rewards = rollout.get_reward(samples, NUM_ROLLOUTS, discriminator)
             rewards = Variable(torch.Tensor(rewards))
+            # Because the discriminator gives results in negative log likelihood, exponent it
             rewards = torch.exp(rewards).contiguous().view((-1,))
             if args.cuda and torch.cuda.is_available():
                 rewards = rewards.cuda()
 
+            # Make a forward prediction of the next step given the inputs using the generator
             prob = generator.forward(inputs)
-            # train_loss = gen_gan_loss(prob, targets, rewards)
-            train_loss = gen_gan_loss(prob, targets, rewards) / BATCH_SIZE # from suragnair/seqGAN
-            total_gen_loss += train_loss
-            print('Adv Epoch [%d], Gen Step [%d] - Train Loss: %f' % (epoch, gstep, train_loss))
+            # adv_loss = gen_gan_loss(prob, targets, rewards)
+            adv_loss = gen_gan_loss(prob, targets, rewards) / BATCH_SIZE # from suragnair/seqGAN
+            total_gen_loss += adv_loss
+            print('Adv Epoch [%d], Gen Step [%d] - Train Loss: %f' % (epoch, gstep, adv_loss))
+            # back propagate the GAN loss
             gen_gan_optm.zero_grad()
-            train_loss.backward()
+            adv_loss.backward()
             gen_gan_optm.step()
 
+            # Check how our MLE validation changes with GAN loss. We've noticed it going up, but are unsure
+            # if this is a good metric by which to validate for this type of training.
             valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
             print('Adv Epoch [%d], Gen Step [%d] - Valid Loss: %f' % (epoch, gstep, valid_loss))
+
+            # Update the parameters of the generator copy inside the rollout object.
             rollout.update_params()
 
         adv_gen_loss.append(total_gen_loss / G_STEPS)
         
+        # Train the Discriminator for `D_STEPS` each on `D_DATA_GENS` sets of generated and sampled real data
         total_dscr_loss = 0.0
         for data_gen in range(D_DATA_GENS):
             data_loader = get_subset_dataloader(dataset)
@@ -350,6 +391,7 @@ def main():
     if not op.exists(run_dir):
         os.makedirs(run_dir)
 
+    # Save the model and parameters needed to reinstantiate it at the end of training 
     model_inputs = {'vocab_size': VOCAB_SIZE,
                     'embed_dim': gen_embed_dim,
                     'hidden_dim': gen_hidden_dim,

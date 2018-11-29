@@ -6,6 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Discriminator(nn.Module):
+    """
+    A CNN Model that gives a softmax output over 2 classes, which is taken to be the likelihood of being real or fake
+    for an input sequence.
+    """
     def __init__(self, vocab_size, embed_dim, filter_sizes, 
             num_filters, output_dim, dropout=0.0, **kwargs):
         super(Discriminator, self).__init__(**kwargs)
@@ -29,11 +33,11 @@ class Discriminator(nn.Module):
         Args:
             x: (batch_size * seq_len)
         """
-        # batch_size * 1 * seq_len * embed_dim
+        # dims: batch_size * 1 * seq_len * embed_dim
         embedded = self.embedder(x).unsqueeze(1)
-        # [batch_size * num_filter * length]
+        # dims: [batch_size * num_filter * length]
         convs = [F.relu(conv_layer(embedded)).squeeze(-1) for conv_layer in self.conv_layers]
-        # [batch_size * num_filter]
+        # dims: [batch_size * num_filter]
         pools = [F.max_pool1d(conv, conv.size(2)).squeeze(2) for conv in convs]
         pred = torch.cat(pools, 1) # batch_size * num_filters_sum
         pred = self.fc1(pred)
