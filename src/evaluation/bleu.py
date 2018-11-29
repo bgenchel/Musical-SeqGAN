@@ -12,9 +12,9 @@ class BleuScore:
 
     def evaluate_bleu_score(self, predictions, targets, ticks=False, corpus=True):
         """
-        Given an array of predicted ticks and its ground truth, compute the BLEU score across 8 measure "sentences".
-        :param predictions: an N x 38 numpy matrix, where N is the number of predicted ticks to evaluate
-        :param targets: an N x 38 numpy matrix, where N is the number of target ticks to be evaluated against
+        Given an array of predicted sequences and ground truths, compute the BLEU score across the sequences.
+        :param predictions: an num_sequences x seq_length numpy matrix
+        :param targets: an num_sequences x seq_length numpy matrix
         :return: the BLEU score across the corpus of predicted ticks
         """
         if ticks:
@@ -46,7 +46,6 @@ class BleuScore:
         :param ticks: an np array of ticks to convert to sentences
         :return: a list of sentences
         """
-
         sentences = []
 
         for seq in ticks:
@@ -55,22 +54,5 @@ class BleuScore:
                 word = ''.join([str(x) for x in seq[i, :]])
                 sentence.append(word)
             sentences.append(sentence)
-
-        # tick_ctr = 0
-        # num_ticks = ticks.shape[0]
-        # while tick_ctr < num_ticks:
-        #     if num_ticks - tick_ctr >= self.seq_len:
-        #         sentence_array = ticks[tick_ctr:tick_ctr + self.seq_len, :]
-        #     else:
-        #         sentence_array = ticks[tick_ctr:, :]
-        #
-        #     sentence = []
-        #     for i in range(sentence_array.shape[0]):
-        #         word = ''.join([str(x) for x in sentence_array[i, :]])
-        #         sentence.append(word)
-        #
-        #     sentences.append(sentence)
-        #
-        #     tick_ctr += sentence_array.shape[0]
 
         return sentences

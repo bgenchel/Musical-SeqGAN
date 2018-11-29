@@ -1,9 +1,11 @@
 import os.path as op
 import sys
+import os
 import torch
 from pathlib import Path
 from tqdm import tqdm
 from torch.utils.data import DataLoader
+import argparse
 
 import pdb
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
@@ -21,7 +23,7 @@ BATCH_SIZE = 128
 def listify(tensor):
     return tensor.cpu().numpy().tolist()
 
-def main():
+def bleu():
     """
     Used to calculate the BLEU score across the pretrained generator and adversarially trained generator.
     :return:
@@ -36,15 +38,35 @@ def main():
     print("BLEU Score for pretrained generator: {}".format(pt_bleu))
     print("BLEU Score for fully_trained generator: {}".format(ft_bleu))
 
-def render_midi():
+def render_midi(num_seqs):
+    """
+    Renders the first num_seqs of the sequences to individual MIDI files.
+    :return:
+    """
     pt_preds, ft_preds, targets = get_predictions()
 
-    for i in tqdm(range(len(targets))):
-        sequence_to_midi("eval_ref/" + str(i) + "_ref.mid", targets[i])
-        sequence_to_midi("eval_pre/" + str(i) + "_pre.mid", pt_preds[i])
-        sequence_to_midi("eval_adv/" + str(i) + "_adv.mid", ft_preds[i])
+    reference_path = "eval_reference"
+    pretrained_path = "eval_pretrained"
+    fully_trained_path = "eval_fully_trained"
+
+    if not op.exists(reference_path):
+        os.mkdir(reference_path)
+    if not op.exists(pretrained_path):
+        os.mkdir(pretrained_path)
+    if not op.exists(fully_trained_path):
+        os.mkdir(fully_trained_path)
+
+    for i in tqdm(range(num_seqs)):
+        sequence_to_midi(op.join(reference_path, str(i) + "_reference.mid"), targets[i])
+        sequence_to_midi(op.join(pretrained_path, str(i) + "_pretrained.mid"), pt_preds[i])
+        sequence_to_midi(op.join(fully_trained_path, str(i) + "_fully_trained.mid"), ft_preds[i])
 
 def get_predictions():
+    """
+    Loads the Nottingham dataset, returns the target sequences, generations from the pretrained generator, and
+    generations from the adversarially trained generator.
+    :return:
+    """
     print("Loading Data ... ")
     dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=SEQ_LEN, data_format="nums")
     dataloader = DataLoader(dataset, batch_size=128, drop_last=True, shuffle=True)
@@ -75,4 +97,15 @@ def get_predictions():
     return targets, pt_preds, ft_preds
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-r', '--render_midi', action='store_true')
+    parser.add_argument('--num_midi_samples', default=1000)
+    parser.add_argument('-b', '--compute_bleu', action='store_true')
+    args = parser.parse_args()
+
+    if args.render_midi:
+        render_midi(int(args.num_midi_samples))
+
+    if args.compute_bleu:
+        bleu()
+
