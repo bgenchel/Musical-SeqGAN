@@ -32,7 +32,6 @@ class MGEval:
         self.num_samples = 100
 
         self.metrics = core.metrics()
-        print(len(self.pred_set))
 
     def get_metric(self, metric_name, pred_metric_shape, target_metric_shape, *args, **kwargs):
         pred_metric = np.zeros((self.num_samples,) + pred_metric_shape)
