@@ -13,6 +13,10 @@ import pdb
 
 
 class MGEval:
+    """
+    Wrapper around Richard Yang's MGEval
+    """
+
     def __init__(self, pred_dir, target_dir):
         self.pred_set = glob.glob(op.join(pred_dir, "*.mid"))
         self.target_set = glob.glob(op.join(target_dir, "*.mid"))
@@ -30,13 +34,13 @@ class MGEval:
         self.metrics = core.metrics()
         print(len(self.pred_set))
 
-    def get_metric(self, metric_name, pred_metric_shape, target_metric_shape):
-        pred_metric = np.zeros((self.num_samples, ) + pred_metric_shape)
-        target_metric = np.zeros((self.num_samples, ) + target_metric_shape)
+    def get_metric(self, metric_name, pred_metric_shape, target_metric_shape, *args, **kwargs):
+        pred_metric = np.zeros((self.num_samples,) + pred_metric_shape)
+        target_metric = np.zeros((self.num_samples,) + target_metric_shape)
 
         for sample in range(self.num_samples):
-            pred_metric[sample] = getattr(self.metrics, metric_name)(core.extract_feature(self.pred_set[sample]))
-            target_metric[sample] = getattr(self.metrics, metric_name)(core.extract_feature(self.target_set[sample]))
+            pred_metric[sample] = getattr(self.metrics, metric_name)(core.extract_feature(self.pred_set[sample]), *args, **kwargs)
+            target_metric[sample] = getattr(self.metrics, metric_name)(core.extract_feature(self.target_set[sample]), *args, **kwargs)
 
         return pred_metric, target_metric
 
@@ -68,8 +72,8 @@ class MGEval:
 
     def visualize(self, metric_name, pred_intra, target_intra, inter):
         for measurement, label in zip([pred_intra, target_intra, inter], ["pred_intra", "target_intra", "inter"]):
-            tranposed = np.transpose(measurement, (1, 0, 2)).reshape(1, -1)
-            sns.kdeplot(tranposed[0], label=label)
+            transposed = np.transpose(measurement, (1, 0, 2)).reshape(1, -1)
+            sns.kdeplot(transposed[0], label=label)
 
         plt.title(metric_name)
         plt.xlabel('Euclidean distance')
@@ -92,10 +96,13 @@ class MGEval:
         print('  Overlap area:', utils.overlap_area(transposed[1][0], transposed[2][0]))
 
 
-# Testing
 if __name__ == "__main__":
-    mge = MGEval("../models/original_nottingham/eval_ref", "../models/original_nottingham/eval_adv")
-    pred_metric, target_metric = mge.get_metric("avg_pitch_shift", (1,), (1,))
+    mge = MGEval("../models/original_nottingham/eval_reference", "../models/original_nottingham/eval_fully_trained")
+    # Expected shape of desired metric
+    metric_shape = (12, 12)
+    args = ()
+    kwargs = { "track_num": 1 }
+    pred_metric, target_metric = mge.get_metric("note_length_transition_matrix", metric_shape, metric_shape, *args, **kwargs)
     inter = mge.inter_set_cross_validation(pred_metric, target_metric)
     pred_intra, target_intra = mge.intra_set_cross_validation(pred_metric, target_metric)
-    mge.visualize("avg_pitch_shift", pred_intra, target_intra, inter)
+    mge.visualize("note_length_transition_matrix", pred_intra, target_intra, inter)
