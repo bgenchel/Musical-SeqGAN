@@ -32,7 +32,6 @@ class MGEval:
         self.num_samples = 100
 
         self.metrics = core.metrics()
-        print(len(self.pred_set))
 
     def get_metric(self, metric_name, pred_metric_shape, target_metric_shape, *args, **kwargs):
         pred_metric = np.zeros((self.num_samples,) + pred_metric_shape)
@@ -100,9 +99,15 @@ if __name__ == "__main__":
     mge = MGEval("../models/original_nottingham/eval_reference", "../models/original_nottingham/eval_fully_trained")
     # Expected shape of desired metric
     metric_shape = (12, 12)
+
+    # Metric name
+    metric_name = "note_length_transition_matrix"
+
+    # Args and kwargs if needed for the desired metric
     args = ()
     kwargs = { "track_num": 1 }
-    pred_metric, target_metric = mge.get_metric("note_length_transition_matrix", metric_shape, metric_shape, *args, **kwargs)
+
+    pred_metric, target_metric = mge.get_metric(metric_name, metric_shape, metric_shape, *args, **kwargs)
     inter = mge.inter_set_cross_validation(pred_metric, target_metric)
     pred_intra, target_intra = mge.intra_set_cross_validation(pred_metric, target_metric)
-    mge.visualize("note_length_transition_matrix", pred_intra, target_intra, inter)
+    mge.visualize(metric_name, pred_intra, target_intra, inter)
