@@ -11,6 +11,10 @@ import argparse
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
 import utils.constants as const
 
+TICKS_PER_BEAT = 24
+MIDI_RANGE = 128
+
+
 def rotate(l, x):
     """
     Rotates a list a given number of steps
@@ -20,6 +24,7 @@ def rotate(l, x):
     """
     print(type(x))
     return l[-x:] + l[:-x]
+
 
 class Parser:
 
@@ -246,10 +251,10 @@ class TickParser(Parser):
             #  i.e. scale_factor * divisions = num_ticks
             scale_factor = self.ticks / divisions
 
-            if scale_factor > 1:
-                skipped += 1
-                print(skipped)
-                continue
+            # if scale_factor > 1
+            #     skipped += 1
+            #     print(skipped)
+            #     continue
                 # raise Exception("Error: MusicXML has lower resolution than desired MIDI ticks.")
 
             # Parse each measure
@@ -266,59 +271,50 @@ class TickParser(Parser):
 
         self.parsed = songs
 
-    def parse_measure(self, measure, scale_factor, last_harmony):
+    def parse_measure(self, measure, scale_factor, prev_harmony):
         """
         For a measure, returns a set of ticks grouped by associated harmony in.
         :param measure: a measure dict in the format created by src/processing/conversion/xml_to_json.py
         :param scale_factor: the scale factor between XML divisions and midi ticks
-        :param last_harmony: a reference to the last harmony used in case a measure has none
+        :param prev_harmony: a reference to the last harmony used in case a measure has none
         :return: a dict containing a list of groups that contains a harmony and the midi ticks associated with that harmony
         """
-        parsed_measure = {
-            "groups": []
-        }
-        new_last_harmony = last_harmony
-
-        num_ticks = 0
-
+        parsed_measure = {"groups": []}
+        total_ticks = 0
         for group in measure["groups"]:
             # Set note value for each tick in the measure
-            ticks_by_note = []
+            group_ticks = []
             for note in group["notes"]:
                 if not "duration" in note:
                     print("Skipping grace note...")
                     continue
-                note_divisions = int(note["duration"]["text"])
-                note_ticks = round(scale_factor * note_divisions)
-                note_index = self.get_note_index(note)
+                divisions = int(note["duration"]["text"])
+                num_ticks = round(scale_factor * note_divisions)
+                index = self.get_note_index(note)
 
-                for i in range(note_ticks):
-                    tick = [0 for _ in range(37)]
+                for i in range(num_ticks):
+                    tick = np.zeros((MIDI_RANGE))
                     tick[note_index] = 1
-                    ticks_by_note.append(tick)
+                    group_ticks.append(tick)
 
-            num_ticks += len(ticks_by_note)
+            total_ticks += len(ticks_by_note)
 
             if not group["harmony"]:
-                parsed_measure["groups"].append({
-                    "harmony": last_harmony,
-                    "ticks": ticks_by_note
-                })
+                parsed_measure["groups"].append({"harmony": prev_harmony, "ticks": group_ticks})
             else: 
                 harmony = Harmony(group["harmony"])
-                harmony_dict = {
-                    "root": harmony.get_one_hot_root(),
-                    "pitch_classes": harmony.get_seventh_pitch_classes_binary()
-                }
-                new_last_harmony = harmony_dict
-                parsed_measure["groups"].append({
-                    "harmony": harmony_dict,
-                    "ticks": ticks_by_note
-                })
+                harmony_dict = {"root": harmony.get_one_hot_root(),
+                                "pitch_classes": harmony.get_seventh_pitch_classes_binary()}
+                prev_harmony = harmony_dict
+                parsed_measure["groups"].append({"harmony": harmony_dict, "ticks": ticks_by_note})
 
-        parsed_measure["num_ticks"] = num_ticks
+        if total_ticks > TICKS_PER_BEAT * 4:
+            raise Exception("OH NO BRO. YOUR TICKS ARE TOO MUCH YO")
+        if total_ticks < TICKS_PER_BEAT * 4:
+            raise Exception("OH NO BRO. TOO FEW TICKS!! ADD ZEROS MAYBE?")
 
-        return parsed_measure, new_last_harmony
+        parsed_measure["num_ticks"] = total_ticks
+        return parsed_measure, prev_harmony
 
     def save_parsed(self, transpose=False):
         """
