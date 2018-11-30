@@ -9,7 +9,7 @@ S3_BUCKET = "https://s3.amazonaws.com/rytrose-personal-website/"
 
 
 def get_nottingham():
-    nottingham_path = "data/raw/nottingham-midi"
+    nottingham_path = "../../data/raw/nottingham-midi"
     nottingham_zip_name = "nottingham-midi.zip"
     if op.exists(nottingham_path):
         print("Nottingham exists.")
@@ -32,7 +32,7 @@ def get_nottingham():
 
 
 def get_bebop():
-    bebop_path = op.join(Path(__file__).parents[2], "data", "processed", "songs")
+    bebop_path = "../../data/processed/songs"
     bebop_zip_name = "bebop-incomplete.zip"
     if op.exists(bebop_path):
         print("Bebop exists.")

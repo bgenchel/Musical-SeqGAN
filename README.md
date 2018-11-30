@@ -5,9 +5,26 @@ The original paper briefly mentions that the model was trained for music generat
 
 Here, we attempt to adapt the model specifically for this purpose and give a clearer and more detailed evaluation on the task of music generation.
 
-To run the model on the Nottingham dataset, navigate to src/models/nottingham and run
-`python main.py`t
-## A 
+**N.B. When cloning this repo, use the flag `--recursive` after the address, i.e. `git clone https://github.com/bgenchel/MusicalSeqGAN.git --recursive`.**
+
+Otherwise, run `git submodule update --init` in the project root. This is to fetch the git submodule for MGEval.
+
+## Running SeqGAN on Nottingham
+First, create a conda environment based off of the included `environment.yml` file by running:
+
+`conda env create -f environment.yml`
+
+The rest of the commands should be done with this environment active.
+
+To fetch the datasets, run the following:
+
+- From project root, `cd src/scripts`
+- Then run `python get_data.py`
+
+To train the model, run the following:
+
+- From project root, `cd src/models/nottingham`
+- Then run `python main.py`
 
 ## Running the MGEval Toolkit
 The MGEval toolkit requires the use of python 2, which is not the version of python needed to run SeqGAN.
