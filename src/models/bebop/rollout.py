@@ -1,5 +1,5 @@
 """
-taken from https://github.com/ZiJianZhao/SeqGAN-PyTorch
+Calculate Rewards by 'rolling out' generated sequences to get an idea of state
 """
 import copy
 import numpy as np
@@ -19,6 +19,10 @@ class Rollout(object):
             data: input data (batch_size, seq_len)
             rollout_num: roll-out number
             discriminator: discriminator model
+
+            For `rollout_num` iterations, rollout the sequence from each timestep in order to get an idea of the
+            generator's state at that step. Rewards for each step equal the average of the discriminator's predicted
+            likelihood that the `rollout_num` rollouts from those steps are real.
         """
         rewards = []
         batch_size, seq_len = data.size()
@@ -32,7 +36,6 @@ class Rollout(object):
                 if i == 0:
                     rewards.append(pred)
                 else:
-                    # rewards are summed over all rollouts?
                     rewards[l-1] += pred
 
         rewards = np.transpose(np.array(rewards)) / float(rollout_num)
@@ -40,10 +43,10 @@ class Rollout(object):
 
     def update_params(self):
         """
-        seems like this is transferring parameter values from the original_model
-        to my_model, based on the update rate. Doesn't look like this has anything
-        to do with the rewards being calculated though ... not sure what the purpose
-        of this is
+        With the exception of the embedding layers, which are transferred in directly from the actual generator
+        being trained in the adversarial loop, update the weights of the copy model via a weighted average of the
+        actual generator's current params and the copy model's current params. This, in essence, moves the copy
+        model at a slower rate in the same direction as the generator is moving.
         """
         dic = {}
         for name, param in self.model.named_parameters():

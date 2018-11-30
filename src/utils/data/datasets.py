@@ -3,16 +3,24 @@ import os
 import os.path as op
 import pickle
 import pretty_midi as pm
+import sys
 import torch
+from pathlib import Path
 from torch.utils.data.dataset import Dataset
 
+sys.path.append(str(Path(op.abspath(__file__)).parents[1]))
+import constants as const
+
+DEFAULT_DATA_PATH = op.join(Path(op.abspath(__file__)).parents[3], 'data', 'processed', 'bebop-pkl')
+
 # MIDI Range Stuff
-Ab0 = 20 # would start with A0, but want 0 to be below the range of possible numbers
+Ab0 = 20 # Ab0 is rest, A0 is first possible
 C8 = 108
 
 NOTE_TICK_LENGTH = 37
-HARMONY_ROOT_LENGTH = 12
-HARMONY_PITCH_CLASSES_LENGTH = 12
+const.CHORD_ROOT_DIM = 12
+const.CHORD_PITCH_CLASSES_DIM = 12
+
 
 class MidiTicksDataset(Dataset):
     """
@@ -28,35 +36,34 @@ class MidiTicksDataset(Dataset):
         :param target_type: if "full_sequence" the target is the full input sequence, if "next_step" the target is
                 the last tick of the input sequence
         """
-        print("INIT")
         super().__init__()
 
         if not op.exists(load_dir):
             raise Exception("Data directory does not exist.")
 
-        self.sequences = []
-        self.targets = []
+        self.sequences = self._create_data_dict()
+        self.targets = self._create_data_dict()
 
-        for file in os.listdir(load_dir):
-            if op.splitext(file)[1] != ".pkl":
-                print("Skipping %s..." % file)
+        for fname in os.listdir(load_dir):
+            if op.splitext(fname)[1] != ".pkl":
+                print("Skipping %s..." % fname)
                 continue
 
-            song = pickle.load(open(op.join(load_dir, file), "rb"))
+            song = pickle.load(open(op.join(load_dir, fname), "rb"))
 
-            if song["metadata"]["ticks_per_measure"] != 96:
-                print("Skipping %s because it isn't in 4/4." % file)
+            # if song["metadata"]["ticks_per_measure"] != 96:
+                # print("Skipping %s because it isn't in 4/4." % fname)
+            if song["metadata"]["time_signature"] != "4/4":
+                print("Skipping %s because it isn't in 4/4." % fname)
 
             sequence_start = 0
             while sequence_start < len(song["measures"]):
-                sequence = []
+                sequence = self._create_data_dict()
                 for sequence_index in range(measures_per_seq):
                     measure_index = sequence_start + sequence_index
                     if measure_index < len(song["measures"]):
                         measure = song["measures"][sequence_start + sequence_index]
-
                         formatted_measure = []
-
                         # Append harmony root and pitch classes to each tick
                         for group in measure["groups"]:
                             for tick in group["ticks"]:
@@ -94,6 +101,10 @@ class MidiTicksDataset(Dataset):
             print("NOT full_sequence NOT IMPLEMENTED FOR MIDITICKS")
             self.targets = None
 
+    @staticmethod
+    def _create_data_dict():
+        return {const.PITCH_KEY: [], const.DUR_KEY: [], const.CHORD_KEY: [], const.BARPOS_KEY: []}
+
     def __len__(self):
         """
         The length of the dataset.
@@ -114,9 +125,9 @@ class MidiTicksDataset(Dataset):
     def _get_none_harmony(self):
         """
         Gets a representation of no harmony.
-        :return: a HARMONY_ROOT_LENGTH + HARMONY_PITCH_CLASSES_LENGTH x 1 list of zeroes
+        :return: a CHORD_ROOT_DIM + CHORD_PITCH_CLASSES_DIM x 1 list of zeroes
         """
-        return [0 for _ in range(HARMONY_ROOT_LENGTH + HARMONY_PITCH_CLASSES_LENGTH)]
+        return [0 for _ in range(const.CHORD_ROOT_DIM + const.CHORD_PITCH_CLASSES_DIM)]
 
     def _get_empty_ticks(self, num_ticks):
         """
@@ -127,97 +138,22 @@ class MidiTicksDataset(Dataset):
         ticks = []
 
         for _ in range(num_ticks):
-            tick = [0 for _ in range(HARMONY_ROOT_LENGTH + HARMONY_PITCH_CLASSES_LENGTH + NOTE_TICK_LENGTH)]
+            tick = [0 for _ in range(const.CHORD_ROOT_DIM + const.CHORD_PITCH_CLASSES_DIM + NOTE_TICK_LENGTH)]
             tick[-1] = 1
             ticks.append(tick)
 
         return ticks
 
-class NottinghamMLEDataset(Dataset):
-    """
-    Loads the nottingham dataset, in midi format. From the original paper:
-    
-    For music composition, we use the Nottingham dataset as our training data, 
-    which is a collection of 695 music of folk tunes in midi file format. We 
-    study the solo track of each music. In our work, we use 88 numbers to 
-    represent 88 pitches, which correspond to the 88 keys on the piano. With 
-    the pitch sampling for every 0.4s, we transform the midi files into 
-    sequences of numbers from 1 to 88 with the length 32.
-    """
-
-    def __init__(self, load_dir, period=0.4, seq_len=32, data_format="nums", train_type="full_sequence", **kwargs):
-        """
-        Loads the MIDI tick information, converts into format based on original paper designation.
-        :param load_dir: location of nottingham midi dataset
-        :param period: how much time 1 tick represents in the MIDI
-        :param seq_len: how many ticks in a sequence/data point
-        :param target_type: if "full_sequence", the target and sequence are both the full input sequence, 
-            if "next_step", target will be the next step and sequence will be the proceeding *seq_len* steps.
-        :param data_format: if "nums", then the data will be a list of note numbers from 0 to 88. if "ticks", then the 
-            data will be a sequence of one-hot size 88 vectors.
-        """
-        super().__init__(**kwargs)
-
-        assert data_format in ("ticks", "nums")
-        assert train_type in ("full_sequence", "next_step")
-        if not op.exists(load_dir):
-            raise Exception("Data directory does not exist.")
-
-        self.seq_len = seq_len
-        self.data_format = data_format
-        self.train_type = train_type
-
-        self.seqs = []
-        self.targets = []
-
-        for fname in os.listdir(load_dir):
-            if op.splitext(fname)[1] != ".mid":
-                # print("Skipping %s..." % fname)
-                continue
-            song = pm.PrettyMIDI(op.join(load_dir, fname))
-            melody = song.instruments[0]
-            piano_roll = melody.get_piano_roll(fs=(1/period))
-            piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
-            self._sequence_load(piano_roll)
-
-    def _sequence_load(self, piano_roll):
-        # pad for an even split
-        padding = np.zeros((piano_roll.shape[0], self.seq_len))
-        piano_roll = np.concatenate((padding, piano_roll), axis=1)
-        if self.data_format == "nums":
-            piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
-
-        for i in range(piano_roll.shape[0] - self.seq_len):
-            self.seqs.append(piano_roll[i:(i + self.seq_len)])
-            if self.train_type == "full_sequence": 
-                self.targets.append(piano_roll[(i + 1):(i + self.seq_len + 1)])
-            elif self.train_type == "next_step":
-                self.targets.append(piano_roll[i + self.seq_len])
-
-    def __len__(self):
-        """
-        The length of the dataset.
-        :return: the number of sequences in the dataset
-        """
-        return len(self.seqs)
-
-    def __getitem__(self, index):
-        """
-        A sequence and its target.
-        :param index: the index of the sequence and target to fetch
-        :return: the sequence and target at the specified index
-        """
-        return torch.from_numpy(np.array(self.seqs[index])), torch.from_numpy(np.array(self.targets[index]))
 
 class NottinghamDataset(Dataset):
     """
     Loads the nottingham dataset, in midi format. From the original paper:
     
     For music composition, we use the Nottingham dataset as our training data, 
-    which is a collection of 695 music of folk tunes in midi file format. We 
+    which is a collection of 695 music of folk tunes in midi fname format. We 
     study the solo track of each music. In our work, we use 88 numbers to 
     represent 88 pitches, which correspond to the 88 keys on the piano. With 
-    the pitch sampling for every 0.4s, we transform the midi files into 
+    the pitch sampling for every 0.4s, we transform the midi fnames into 
     sequences of numbers from 1 to 88 with the length 32.
     """
 
@@ -284,71 +220,3 @@ class NottinghamDataset(Dataset):
         :return: the sequence and target at the specified index
         """
         return torch.from_numpy(np.array(self.seqs[index])), torch.from_numpy(np.array(self.targets[index]))
-
-# class NottinghamNonOverlapDataset(Dataset):
-#     """
-#     Loads the nottingham dataset, in midi format. From the original paper:
-    
-#     For music composition, we use the Nottingham dataset as our training data, 
-#     which is a collection of 695 music of folk tunes in midi file format. We 
-#     study the solo track of each music. In our work, we use 88 numbers to 
-#     represent 88 pitches, which correspond to the 88 keys on the piano. With 
-#     the pitch sampling for every 0.4s, we transform the midi files into 
-#     sequences of numbers from 1 to 88 with the length 32.
-#     """
-
-#     def __init__(self, load_dir, period=0.4, seq_len=32, data_format="nums", **kwargs):
-#         """
-#         Loads the MIDI tick information, converts into format based on original paper designation.
-#         :param load_dir: location of nottingham midi dataset
-#         :param period: how much time 1 tick represents in the MIDI
-#         :param seq_len: how many ticks in a sequence/data point
-#         :param target_type: if "full_sequence", the target and sequence are both the full input sequence, 
-#             if "next_step", target will be the next step and sequence will be the proceeding *seq_len* steps.
-#         :param data_format: if "nums", then the data will be a list of note numbers from 0 to 88. if "ticks", then the 
-#             data will be a sequence of one-hot size 88 vectors.
-#         """
-#         super().__init__(**kwargs)
-
-#         assert data_format in ("ticks", "nums")
-#         if not op.exists(load_dir):
-#             raise Exception("Data directory does not exist.")
-
-#         self.seq_len = seq_len
-#         self.data_format = data_format
-
-#         self.seqs = []
-
-#         for fname in os.listdir(load_dir):
-#             if op.splitext(fname)[1] != ".mid":
-#                 # print("Skipping %s..." % fname)
-#                 continue
-#             song = pm.PrettyMIDI(op.join(load_dir, fname))
-#             melody = song.instruments[0]
-#             piano_roll = melody.get_piano_roll(fs=(1/period))
-#             piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
-#             self._sequence_load(piano_roll)
-
-#     def _sequence_load(self, piano_roll):
-#         # pad for an even split
-#         if self.data_format == "nums":
-#             piano_roll = np.argmax(piano_roll, axis=0) # gets rid of an axis
-
-#         for i in range(piano_roll.shape[0] // self.seq_len):
-#             start, end = i*self.seq_len, (i + 1)*self.seq_len 
-#             self.seqs.append(piano_roll[start:end])
-
-#     def __len__(self):
-#         """
-#         The length of the dataset.
-#         :return: the number of sequences in the dataset
-#         """
-#         return len(self.seqs)
-
-#     def __getitem__(self, index):
-#         """
-#         A sequence and its target.
-#         :param index: the index of the sequence and target to fetch
-#         :return: the sequence and target at the specified index
-#         """
-#         return torch.from_numpy(np.array(self.seqs[index]))
