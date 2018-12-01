@@ -6,6 +6,7 @@ PITCH_KEY = "pitch_numbers"
 DUR_KEY = "duration_tags"
 CHORD_KEY = "harmony"
 BARPOS_KEY = "bar_positions"
+TICK_KEY = "ticks"
 
 # Model Params
 PITCH_DIM = 128

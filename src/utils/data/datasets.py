@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import os
 import os.path as op
@@ -18,16 +19,13 @@ Ab0 = 20 # Ab0 is rest, A0 is first possible
 C8 = 108
 
 NOTE_TICK_LENGTH = 37
-const.CHORD_ROOT_DIM = 12
-const.CHORD_PITCH_CLASSES_DIM = 12
 
-
-class MidiTicksDataset(Dataset):
+class TicksDataset(Dataset):
     """
-    This defines the loading and organizing of parsed MusicXML data into a MIDI tick database.
+    This defines the loading and organizing of parsed MusicXML data into a 'ticks' format, meaning one token represents
+    a constant division of time.
     """
-
-    def __init__(self, load_dir, measures_per_seq=8, hop_size=4, target_type="full_sequence", **kwargs):
+    def __init__(self, load_dir, measures_per_seq=4, hop_size=4, format="nums", target_type="full_sequence", **kwargs):
         """
         Loads the MIDI tick information, groups into sequences based on measures.
         :param load_dir: location of parsed MusicXML data
@@ -35,6 +33,7 @@ class MidiTicksDataset(Dataset):
         :param hop_size: how many measures to move in time when creating sequences
         :param target_type: if "full_sequence" the target is the full input sequence, if "next_step" the target is
                 the last tick of the input sequence
+        :param format: either numbers (midi numbers) if "nums" or one hot vectors if "vecs"
         """
         super().__init__()
 
@@ -56,6 +55,14 @@ class MidiTicksDataset(Dataset):
             if song["metadata"]["time_signature"] != "4/4":
                 print("Skipping %s because it isn't in 4/4." % fname)
 
+            full_sequence = self._create_data_dict()
+            for measure in song["measures"]:
+                for group in measure["groups"]:
+                    chord_vec = group['harmony']['root'] + group['harmony']['pitch_classes']
+                    harmony = [copy.deepcopy(chord_vec) for _ in range(len(group['ticks']))]
+                    full_sequence[const.CHORD_KEY].extend(harmony)
+                    full_sequence[const.TICK_KEY].extend(group['ticks'])
+
             sequence_start = 0
             while sequence_start < len(song["measures"]):
                 sequence = self._create_data_dict()
@@ -63,8 +70,7 @@ class MidiTicksDataset(Dataset):
                     measure_index = sequence_start + sequence_index
                     if measure_index < len(song["measures"]):
                         measure = song["measures"][sequence_start + sequence_index]
-                        formatted_measure = []
-                        # Append harmony root and pitch classes to each tick
+                        
                         for group in measure["groups"]:
                             for tick in group["ticks"]:
                                 if group["harmony"]:
@@ -103,7 +109,7 @@ class MidiTicksDataset(Dataset):
 
     @staticmethod
     def _create_data_dict():
-        return {const.PITCH_KEY: [], const.DUR_KEY: [], const.CHORD_KEY: [], const.BARPOS_KEY: []}
+        return {const.TICK_KEY: [], const.CHORD_KEY: []}
 
     def __len__(self):
         """

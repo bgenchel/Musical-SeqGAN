@@ -1,4 +1,5 @@
 import json
+import numpy as np
 import os.path as op
 import os
 import sys
@@ -22,7 +23,7 @@ def rotate(l, x):
     :param x: a positive or negative integer steps to rotate
     :return: the rotated list
     """
-    print(type(x))
+    # print(type(x))
     return l[-x:] + l[:-x]
 
 
@@ -37,8 +38,6 @@ class Parser:
         :param song_dir: the directory to save parsed individual songs
         :param dataset_dir: the directory to save full datasets
         """
-        self.output = output
-
         self.root_dir, \
         self.json_dir, \
         self.song_dir, \
@@ -72,15 +71,15 @@ class Parser:
         if json_dir and not op.exists(json_dir):
             raise Exception("JSON directory not found.")
         else:
-            json_dir = op.join(root_dir, 'data', 'raw', 'json')
+            json_dir = op.join(root_dir, 'data', 'interim', 'bebop-json')
             if not op.exists(json_dir):
-                raise Exception("JSON directory not found.")
+                raise Exception("JSON directory {} not found.".format(json_dir))
 
         # Directory where individual parsed songs get saved to
         if song_dir and not op.exists(song_dir):
             os.makedirs(song_dir)
         else:
-            song_dir = op.join(root_dir, 'data', 'processed', 'songs')
+            song_dir = op.join(root_dir, 'data', 'processed', 'bebop-songs')
             if not op.exists(song_dir):
                 os.makedirs(song_dir)
 
@@ -88,7 +87,7 @@ class Parser:
         if dataset_dir and not op.exists(dataset_dir):
             os.makedirs(song_dir)
         else:
-            dataset_dir = op.join(root_dir, 'data', 'processed', 'datasets')
+            dataset_dir = op.join(root_dir, 'data', 'processed', 'bebop-datasets')
             if not op.exists(dataset_dir):
                 os.makedirs(dataset_dir)
 
@@ -171,7 +170,7 @@ class Parser:
         else:
             mode = "major"  # just assume, it doesn't really matter anyways
         try:
-            key = "%s%s" % (KEYS_DICT[mode][position], mode)
+            key = "%s%s" % (const.KEYS_DICT[mode][position], mode)
         except KeyError:
             print("Error!! mode: {}, position: {}".format(mode, position))
             key = None
@@ -200,7 +199,7 @@ class TickParser(Parser):
         :param dataset_dir: the directory to save full datasets
         """
         super().__init__(root_dir, json_dir, song_dir, dataset_dir)
-        self.ticks = 24
+        self.ticks = TICKS_PER_BEAT
         self.parse()
 
     def parse(self):
@@ -289,15 +288,15 @@ class TickParser(Parser):
                     print("Skipping grace note...")
                     continue
                 divisions = int(note["duration"]["text"])
-                num_ticks = round(scale_factor * note_divisions)
+                num_ticks = int(scale_factor * divisions)
                 index = self.get_note_index(note)
 
                 for i in range(num_ticks):
-                    tick = np.zeros((MIDI_RANGE))
-                    tick[note_index] = 1
+                    tick = [0 for _ in range(MIDI_RANGE)]
+                    tick[index] = 1
                     group_ticks.append(tick)
 
-            total_ticks += len(ticks_by_note)
+            total_ticks += len(group_ticks)
 
             if not group["harmony"]:
                 parsed_measure["groups"].append({"harmony": prev_harmony, "ticks": group_ticks})
@@ -306,12 +305,19 @@ class TickParser(Parser):
                 harmony_dict = {"root": harmony.get_one_hot_root(),
                                 "pitch_classes": harmony.get_seventh_pitch_classes_binary()}
                 prev_harmony = harmony_dict
-                parsed_measure["groups"].append({"harmony": harmony_dict, "ticks": ticks_by_note})
+                parsed_measure["groups"].append({"harmony": harmony_dict, "ticks": group_ticks})
 
         if total_ticks > TICKS_PER_BEAT * 4:
             raise Exception("OH NO BRO. YOUR TICKS ARE TOO MUCH YO")
-        if total_ticks < TICKS_PER_BEAT * 4:
-            raise Exception("OH NO BRO. TOO FEW TICKS!! ADD ZEROS MAYBE?")
+
+        i = 0
+        while total_ticks < TICKS_PER_BEAT * 4:
+            group = parsed_measure["groups"][i]
+            spacer_tick = [0 for _ in range(MIDI_RANGE)]
+            spacer_tick[0] = 1 # fill with rests
+            group["ticks"].append(spacer_tick)
+            i = (i + 1) % len(parsed_measure["groups"])
+            total_ticks += 1
 
         parsed_measure["num_ticks"] = total_ticks
         return parsed_measure, prev_harmony
@@ -331,7 +337,6 @@ class TickParser(Parser):
             if transpose:
                 for steps in range(-6, 6):
                     transposed = self.transpose_song(song, steps)
-
                     filename = "-".join([
                         "_".join(transposed["metadata"]["title"].split(" ")),
                         "_".join(transposed["metadata"]["artist"].split(" "))]) + "_%d" % steps + ".pkl"
@@ -346,7 +351,7 @@ class TickParser(Parser):
                 outpath = op.join(self.song_dir, filename)
                 pickle.dump(song, open(outpath, 'wb'))
 
-    @static_method
+    @staticmethod
     def get_note_index(note):
         """
         Fetches an index value for encoding a note's pitch for MIDI tick pitch formatting.
@@ -354,13 +359,13 @@ class TickParser(Parser):
         :return: an index representing a note value, where 0 is F3, 35 is E6, and 36 is 'rest'
         """
         if "rest" in note.keys():
-            return 36
+            return 0
         else:
             note_string = note["pitch"]["step"]["text"]
             if "alter" in note["pitch"].keys():
                 note_string += (lambda x: "b" if -1 else ("#" if 1 else ""))(
                     note["pitch"]["alter"]["text"])
-            note_int = NOTES_MAP[note_string]
+            note_int = const.NOTES_MAP[note_string]
             octave = int(note["pitch"]["octave"]["text"])
 
             # Squash to F3-E6
@@ -389,14 +394,12 @@ class TickParser(Parser):
         :return: a transposed song in MIDI ticks form
         """
         sign = lambda x: (1, -1)[x < 0]
-
         transposed = deepcopy(song)
         print("transposing by %i" % steps)
         transposed["transposition"] = steps
 
         for measure in transposed["measures"]:
             for group in measure["groups"]:
-                print(group['harmony'])
                 if group["harmony"]:
                     # Transpose harmony
                     group["harmony"]["root"] = rotate(group["harmony"]["root"], steps)
@@ -406,48 +409,48 @@ class TickParser(Parser):
                 direction = sign(steps)
                 new_ticks = group["ticks"]
                 for _ in range(abs(steps)):
-                    ticks = []
+                    transposed_ticks = []
                     for tick in new_ticks:
-                        ticks.append(cls.transpose_ticks(tick, direction))
-                    new_ticks = ticks
+                        transposed_ticks.append(cls.transpose_tick(tick, direction))
+                    new_ticks = transposed_ticks
                 group["ticks"] = new_ticks
 
         return transposed
 
     @staticmethod
-    def transpose_ticks(ticks, direction):
+    def transpose_tick(tick, direction):
         """
         Transposes a MIDI tick array one step up or down.
         :param ticks: a one-hot array representing a pitch F3-E6 or rest
         :param direction: either -1 or 1, representing the direction to transpose
         :return: a transposed MIDI tick array
         """
-        note = ticks.index(1)
+        note = tick.index(1)
 
         # Don't have to transpose a rest
-        if note == len(ticks) - 1:
-            return ticks
+        if note == 0:
+            return tick
 
         # Transpose up a step
         if direction > 0:
-            if note == len(ticks) - 2:
+            if note == len(tick) - 2:
                 # Make E6 transpose "up" to F5
-                transposed = [0 for i in range(len(ticks))]
+                transposed = np.zeros((len(tick)))
                 transposed[note - 11] = 1
                 return transposed
             else:
-                transposed = ticks
+                transposed = tick
                 transposed.insert(0, transposed.pop(len(transposed) - 2))
                 return transposed
         else:
             # Transpose down a step
             if note == 0:
                 # Make F3 transpose "down" to E4
-                transposed = [0 for i in range(len(ticks))]
+                transposed = [0 for i in range(len(tick))]
                 transposed[note + 11] = 1
                 return transposed
             else:
-                transposed = ticks
+                transposed = tick
                 transposed.insert(len(transposed) - 2, transposed.pop(0))
                 return transposed
 
