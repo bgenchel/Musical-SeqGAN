@@ -18,7 +18,6 @@ from pathlib import Path
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
-import warnings
 
 from generator import Generator
 from discriminator import Discriminator
@@ -27,7 +26,8 @@ from gan_loss import GANLoss
 from data_iter import GenDataset, DscrDataset
 
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
-from utils.data.datasets import MidiTicksDataset
+from utils import constants as const
+from utils.data.datasets import BebopTicksDataset
 from utils.data.dataloaders import SplitDataLoader
 
 import pdb
@@ -45,13 +45,16 @@ parser.add_argument('-fpt', '--force_pretrain', default=False, action='store_tru
                     help="force pretraining of generator and discriminator, instead of loading from cache.")
 parser.add_argument('-nc', '--no_cuda', action='store_true', help="don't use CUDA, even if it is available.")
 parser.add_argument('-cd', '--cuda_device', default=0, type=int, help="Which GPU to use")
-parser.add_argument('-w', '--suppress_warnings', action='store_true', help="suppress warnings")
 args = parser.parse_args()
 
 args.cuda = False
 if torch.cuda.is_available() and (not args.no_cuda):
     torch.cuda.set_device(args.cuda_device)
     args.cuda = True
+
+# Paths
+root_dir = str(Path(op.abspath(__file__)).parents[3])
+data_dir = op.join(root_dir, "data", "processed", "bebop-songs")
 
 # General Training Paramters
 SEED = 88 # for the randomize
@@ -82,7 +85,7 @@ PT_DSCR_MODEL_FILE = op.join(PT_DIR, 'discriminator.pt')
 # Generator Model Params
 gen_embed_dim = 64
 gen_hidden_dim = 128 # originally 64
-gen_seq_len = 32
+gen_seq_len = const.TICKS_PER_MEASURE * 4 # generate 4 bars
 
 # Discriminator Model Parameters
 dscr_embed_dim = 128
@@ -141,8 +144,9 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
     total_words = 0.0
     total_batches = 0.0
     for (data, target) in tqdm(data_iter, desc=' - Training', leave=False):
-        data_var = Variable(data)
-        target_var = Variable(target)
+        # pdb.set_trace()
+        data_var = Variable(data[const.TICK_KEY])
+        target_var = Variable(target[const.TICK_KEY])
         if args.cuda and torch.cuda.is_available():
             data_var, target_var = data_var.cuda(), target_var.cuda()
         target_var = target_var.contiguous().view(-1)
@@ -171,8 +175,8 @@ def eval_epoch(model, data_iter, loss_fn, train_type):
     total_words = 0.0
     with torch.no_grad():
         for (data, target) in tqdm(data_iter, desc= " - Evaluation", leave=False):
-            data_var = Variable(data)
-            target_var = Variable(target)
+            data_var = Variable(data[const.TICK_KEY])
+            target_var = Variable(target[const.TICK_KEY])
             if args.cuda and torch.cuda.is_available():
                 data_var, target_var = data_var.cuda(), target_var.cuda()
             target_var = target_var.contiguous().view(-1)
@@ -206,9 +210,12 @@ def main():
     # Load data
     # We load the dataset twice because, while a train and validation split is useful for MLE, we don't want to exclude
     # data points when generating a sample for the discriminator. 
-    pretrain_dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    print("Loading Data ...")
+    pretrain_dataset = BebopTicksDataset(data_dir, train_type=args.train_type, data_format="nums")
     train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
-    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    dataset = BebopTicksDataset(data_dir, seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
+    print("Done.")
+    # pdb.set_trace()
 
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
@@ -402,8 +409,4 @@ def main():
     torch.save({'adv_gen_losses': adv_gen_loss, 'adv_dscr_losses': adv_dscr_loss}, op.join(run_dir, 'losses.pt'))
 
 if __name__ == '__main__':
-    if args.suppress_warnings:
-        with warnings.catch_warnings():
-            main()
-    else:
         main()

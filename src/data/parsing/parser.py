@@ -387,25 +387,9 @@ class TickParser(Parser):
             if "alter" in note["pitch"].keys():
                 note_string += (lambda x: "b" if -1 else ("#" if 1 else ""))(
                     note["pitch"]["alter"]["text"])
-            note_int = const.NOTES_MAP[note_string]
             octave = int(note["pitch"]["octave"]["text"])
-
-            # Squash to F3-E6
-            if octave < 3:
-                if note_int < 5:
-                    print("Note %s out of range, transposing..." % note_string)
-                    octave = 4
-                else:
-                    octave = 3
-            elif octave > 5:
-                if note_int > 5:
-                    print("Note %s out of range, transposing..." % note_string)
-                    octave = 5
-                else:
-                    octave = 6
-
-            # 0 - 35
-            return (((octave - 3) * 12) + note_int) - 5
+            note_index = (octave + 1) * 12 + const.NOTES_MAP[note_string]
+            return note_index
 
     @classmethod
     def transpose_song(cls, song, steps):

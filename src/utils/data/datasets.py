@@ -12,6 +12,8 @@ from torch.utils.data.dataset import Dataset
 sys.path.append(str(Path(op.abspath(__file__)).parents[1]))
 import constants as const
 
+import pdb
+
 DEFAULT_DATA_PATH = op.join(Path(op.abspath(__file__)).parents[3], 'data', 'processed', 'bebop-pkl')
 
 # MIDI Range Stuff
@@ -43,6 +45,8 @@ class BebopTicksDataset(Dataset):
         super().__init__()
         self.measures_per_seq = measures_per_seq
         self.hop_size = hop_size
+        self.target_type = target_type
+        self.data_format = data_format
 
         if not op.exists(load_dir):
             raise Exception("Data directory does not exist.")
@@ -78,15 +82,21 @@ class BebopTicksDataset(Dataset):
                         formatted_ticks.append(formatted)
 
                     if data_format == "nums":
-                            full_sequence[const.TICK_KEY].extend(list(np.array(formatted_ticks).argmax(axis=0)))
+                        full_sequence[const.TICK_KEY].extend(list(np.array(formatted_ticks).argmax(axis=1)))
                     elif data_format == "vecs":
                         full_sequence[const.TICK_KEY].extend(formatted_ticks)
+
+            # print(full_sequence[const.TICK_KEY])
 
         full_sequence = {k: np.array(v) for k, v in full_sequence.items()} 
         for k, seq in full_sequence.items():
             seqs, targets = self._get_seqs_and_targets(seq)
             self.sequences[k].extend(seqs)
             self.targets[k].extend(seqs)
+
+        # pdb.set_trace()
+        print(len(self.sequences))
+        print(len(self.targets))
 
     def _get_seqs_and_targets(self, sequence):
         seqs, targets = [], []
@@ -97,12 +107,12 @@ class BebopTicksDataset(Dataset):
             padding = np.zeros((seq_len, sequence.shape[1]))
         sequence = np.concatenate((padding, sequence), axis=0)
         # sequence = np.concatenate((padding, sequence), axis=1)
-        for i in range(sequence.shape[0], seq_len):
-            seqs.append(sequence[i:()])
+        for i in range(sequence.shape[0] - seq_len):
+            seqs.append(sequence[i:(i + seq_len)])
             if self.target_type == 'next_step':
                 targets.append(sequence[i + self.seq_len])
             elif self.target_type == 'full_sequence':
-                targets.append(sequence[(i + 1):(i + self.seq_len + 1)])
+                targets.append(sequence[(i + 1):(i + seq_len + 1)])
         return seqs, targets
 
     def __len__(self):
