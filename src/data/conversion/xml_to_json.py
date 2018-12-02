@@ -71,7 +71,7 @@ if __name__ == '__main__':
     xml_path = op.join(root_dir, 'data', 'raw', 'bebop-xml')
     if not op.exists(xml_path):
         raise Exception("no xml directory exists.")
-    json_path = op.join(root_dir, 'data', 'raw', 'json')
+    json_path = op.join(root_dir, 'data', 'interim', 'bebop-json')
     if not op.exists(json_path):
         os.makedirs(json_path)
 
