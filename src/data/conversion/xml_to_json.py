@@ -22,6 +22,7 @@ def xml_to_dict(fpath):
                 child_dict = recurse(child, child_dict)
 
             if child.tag == "measure":
+                child_dict["harmonies_start"] = harmony_timing(child)
                 root_dict["measures"].append(child_dict)
             elif child.tag == "harmony":
                 root_dict["groups"].append({"harmony": child_dict, "notes": []})
@@ -41,10 +42,33 @@ def xml_to_dict(fpath):
     xml_dict[root.tag] = {"attributes": root.attrib}
     return recurse(root, xml_dict)
 
+# Used to get the start position of a chord for use in MIDI tick representation
+def harmony_timing(measure):
+    harmonies_start = []
+
+    position = 0
+
+    for el in measure:
+        # Advance position for note
+        if el.tag == "note":
+            for child in el:
+                if child.tag == "duration":
+                    position += int(child.text)
+        elif el.tag == "forward":
+            # Forward has one child, duration
+            position += int(el[0].text)
+        elif el.tag == "backup":
+            # Backward has one child, duration
+            position -= int(el[0].text)
+        elif el.tag == "harmony":
+            # Capture the start time of this harmony
+            harmonies_start.append(position)
+
+    return harmonies_start
 
 if __name__ == '__main__':
     root_dir = str(Path(op.abspath(__file__)).parents[3])
-    xml_path = op.join(root_dir, 'data', 'raw', 'bebop')
+    xml_path = op.join(root_dir, 'data', 'raw', 'bebop-xml')
     if not op.exists(xml_path):
         raise Exception("no xml directory exists.")
     json_path = op.join(root_dir, 'data', 'raw', 'json')
@@ -60,5 +84,5 @@ if __name__ == '__main__':
                     json.dump(xml_to_dict(fpath), fp, indent=4)
             else:
                 raise Exception()
-        except: 
+        except:
             print('Error!')
