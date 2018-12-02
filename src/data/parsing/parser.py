@@ -314,6 +314,10 @@ class TickParser(Parser):
             for i, group in enumerate(parsed_measure["groups"]):
                 try:
                     if not group["ticks"]:
+                        # Handle the case of no harmony at the start of the bar
+                        if not 0 in measure["harmonies_start"]:
+                            measure["harmonies_start"].insert(0, 0)
+
                         correct_len_of_prev_harmony = int(
                             scale_factor * (measure["harmonies_start"][i] - measure["harmonies_start"][i - 1])
                         )
@@ -321,6 +325,8 @@ class TickParser(Parser):
                         group["ticks"].extend(parsed_measure["groups"][i - 1]["ticks"][correct_len_of_prev_harmony:])
                         parsed_measure["groups"][i - 1]["ticks"] = parsed_measure["groups"][i - 1]["ticks"][:correct_len_of_prev_harmony]
                 except:
+                    import pdb
+                    pdb.set_trace()
                     raise ("No ticks in the first group of a measure! (in fix for chords mid-note)")
 
         if total_ticks > TICKS_PER_BEAT * 4:
