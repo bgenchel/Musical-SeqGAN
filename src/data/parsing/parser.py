@@ -254,11 +254,14 @@ class TickParser(Parser):
             #     skipped += 1
             #     print(skipped)
             #     continue
-                # raise Exception("Error: MusicXML has lower resolution than desired MIDI ticks.")
+            # raise Exception("Error: MusicXML has lower resolution than desired MIDI ticks.")
 
             # Parse each measure
             measures = []
-            last_harmony = {}
+
+            # Empty harmony for the beginning of the piece
+            last_harmony = {"root": [0 for _ in range(12)],
+                            "pitch_classes": [0 for _ in range(12)]}
             for measure in song_dict["part"]["measures"]:
                 parsed_measure, last_harmony = self.parse_measure(measure, scale_factor, last_harmony)
                 measures.append(parsed_measure)
@@ -300,12 +303,25 @@ class TickParser(Parser):
 
             if not group["harmony"]:
                 parsed_measure["groups"].append({"harmony": prev_harmony, "ticks": group_ticks})
-            else: 
+            else:
                 harmony = Harmony(group["harmony"])
                 harmony_dict = {"root": harmony.get_one_hot_root(),
                                 "pitch_classes": harmony.get_seventh_pitch_classes_binary()}
                 prev_harmony = harmony_dict
                 parsed_measure["groups"].append({"harmony": harmony_dict, "ticks": group_ticks})
+
+            # Mitigate ticks for chords that occur mid-note
+            for i, group in enumerate(parsed_measure["groups"]):
+                try:
+                    if not group["ticks"]:
+                        correct_len_of_prev_harmony = int(
+                            scale_factor * (measure["harmonies_start"][i] - measure["harmonies_start"][i - 1])
+                        )
+
+                        group["ticks"].extend(parsed_measure["groups"][i - 1]["ticks"][correct_len_of_prev_harmony:])
+                        parsed_measure["groups"][i - 1]["ticks"] = parsed_measure["groups"][i - 1]["ticks"][:correct_len_of_prev_harmony]
+                except:
+                    raise ("No ticks in the first group of a measure! (in fix for chords mid-note)")
 
         if total_ticks > TICKS_PER_BEAT * 4:
             raise Exception("OH NO BRO. YOUR TICKS ARE TOO MUCH YO")
@@ -314,7 +330,7 @@ class TickParser(Parser):
         while total_ticks < TICKS_PER_BEAT * 4:
             group = parsed_measure["groups"][i]
             spacer_tick = [0 for _ in range(MIDI_RANGE)]
-            spacer_tick[0] = 1 # fill with rests
+            spacer_tick[0] = 1  # fill with rests
             group["ticks"].append(spacer_tick)
             i = (i + 1) % len(parsed_measure["groups"])
             total_ticks += 1
@@ -656,7 +672,7 @@ class PitchDurParser(Parser):
         :return: a string representing the duration, and the duration in divisions
         """
         init_dur_dict = {'double': divisions * 8, 'whole': divisions * 4, 'half': divisions * 2,
-                      'quarter': divisions, '8th': divisions / 2, '16th': divisions / 4, '32nd': divisions / 8}
+                         'quarter': divisions, '8th': divisions / 2, '16th': divisions / 4, '32nd': divisions / 8}
 
         dur_dict = {}
         for k, v in init_dur_dict.items():
@@ -674,28 +690,28 @@ class PitchDurParser(Parser):
             note_type = note_dict["type"]["text"]
 
             if note_type == "eighth":
-               note_type = "8th"
+                note_type = "8th"
 
             label = note_type
             dot_dur = 3 * dur_dict[note_type] / 2
             triplet_dur = 2 * dur_dict[note_type] / 3
             if note_dur == dur_dict[note_type]:
-               pass
+                pass
             elif note_dur in dur_dict[note_type + '-dot']:
-               label = '-'.join([label, 'dot'])
+                label = '-'.join([label, 'dot'])
             elif note_dur in dur_dict[note_type + '-triplet']:
-               label = '-'.join([label, 'triplet'])
+                label = '-'.join([label, 'triplet'])
             else:
-               print("Undefined %s duration. Entering as regular %s." % (note_type, note_type))
+                print("Undefined %s duration. Entering as regular %s." % (note_type, note_type))
         else:
             for k, v in dur_dict.items():
-               if type(v) == tuple:
-                  if note_dur in v:
-                     label = k
-                     break
-               elif note_dur == v:
-                  label = k
-                  break
+                if type(v) == tuple:
+                    if note_dur in v:
+                        label = k
+                        break
+                elif note_dur == v:
+                    label = k
+                    break
 
         if label is None:
             print("Undefined duration %.2f. Labeling 'other'." % (note_dur / divisions))
