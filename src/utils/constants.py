@@ -8,6 +8,9 @@ CHORD_KEY = "harmony"
 BARPOS_KEY = "bar_positions"
 TICK_KEY = "ticks"
 
+# Other
+TICKS_PER_MEASURE = 96
+
 # Model Params
 PITCH_DIM = 128
 DUR_DIM = 19
