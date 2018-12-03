@@ -1,3 +1,4 @@
+import argparse
 import xml.etree.ElementTree as ET
 import os
 import os.path as op
@@ -67,11 +68,17 @@ def harmony_timing(measure):
     return harmonies_start
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d', '--dataset', choices=("charlie_parker", "bebop"), type=str, 
+                        default="charlie_parker", help="the dataset to convert")
+    args = parser.parse_args()
+    
     root_dir = str(Path(op.abspath(__file__)).parents[3])
-    xml_path = op.join(root_dir, 'data', 'raw', 'bebop-xml')
+    xml_path = op.join(root_dir, 'data', 'raw', ('bebop-xml', 'charlie_parker-xml')[args.dataset != "bebop"])
     if not op.exists(xml_path):
         raise Exception("no xml directory exists.")
-    json_path = op.join(root_dir, 'data', 'interim', 'bebop-json')
+
+    json_path = op.join(root_dir, 'data', 'interim', ('bebop-json', 'charlie_parker-json')[args.dataset != "bebop"])
     if not op.exists(json_path):
         os.makedirs(json_path)
 

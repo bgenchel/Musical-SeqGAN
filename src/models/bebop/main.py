@@ -2,6 +2,7 @@
 adapted from https://github.com/ZiJianZhao/SeqGAN-PyTorch
 """
 import argparse
+import copy
 import json
 import math
 import numpy as np
@@ -126,7 +127,7 @@ def create_real_data_file(data_iter, output_file):
     samples = []
     data_iter = iter(data_iter)
     for (data, target) in data_iter:
-        sample_batch = list(target.numpy())
+        sample_batch = list(target[const.TICK_KEY].numpy())
         samples.extend(sample_batch)
 
     with open(output_file, 'w') as fout:
@@ -139,26 +140,36 @@ def create_real_data_file(data_iter, output_file):
 # trains `model` for one epoch using data from `data_iter`. train_type refers to the option of training the model
 # using either 'full sequence' or 'next step' (teacher forcing). For this model, we only use full sequence training
 # because it is how it was done in the original.
-def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
+def train_epoch(model, data_iter, loss_fn, optimizer, train_type, pretrain_gen=False):
     total_loss = 0.0
     total_words = 0.0
     total_batches = 0.0
     for (data, target) in tqdm(data_iter, desc=' - Training', leave=False):
-        # pdb.set_trace()
-        data_var = Variable(data[const.TICK_KEY])
-        target_var = Variable(target[const.TICK_KEY])
+        if pretrain_gen:
+            data_var = Variable(data[const.TICK_KEY])
+            target_var = Variable(target[const.TICK_KEY])
+        else:
+            data_var = Variable(data)
+            target_var = Variable(target)
+
+        pdb.set_trace()
+
         if args.cuda and torch.cuda.is_available():
             data_var, target_var = data_var.cuda(), target_var.cuda()
+
         target_var = target_var.contiguous().view(-1)
         pred = model.forward(data_var)
+
         if train_type == "full_sequence":
             pred = pred.view(-1, pred.size()[-1])
         elif train_type == "next_step":
             pred = pred[:, -1, :]
+
         loss = loss_fn(pred, target_var)
         total_loss += loss.item()
         total_words += data_var.size(0) * data_var.size(1)
         total_batches += 1
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -170,21 +181,29 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
 
 
 # evaluate `model`'s performance on data from `data_iter`. See above for train_type.
-def eval_epoch(model, data_iter, loss_fn, train_type):
+def eval_epoch(model, data_iter, loss_fn, train_type, pretrain_gen=True):
     total_loss = 0.0
     total_words = 0.0
     with torch.no_grad():
         for (data, target) in tqdm(data_iter, desc= " - Evaluation", leave=False):
-            data_var = Variable(data[const.TICK_KEY])
-            target_var = Variable(target[const.TICK_KEY])
+            if pretrain_gen:
+                data_var = Variable(data[const.TICK_KEY])
+                target_var = Variable(target[const.TICK_KEY])
+            else:
+                data_var = Variable(data)
+                target_var = Variable(target)
+
             if args.cuda and torch.cuda.is_available():
                 data_var, target_var = data_var.cuda(), target_var.cuda()
+
             target_var = target_var.contiguous().view(-1)
             pred = model.forward(data_var)
+
             if train_type == "full_sequence":
                 pred = pred.view(-1, pred.size()[-1])
             elif train_type == "next_step":
                 pred = pred[:, -1, :]
+
             loss = loss_fn(pred, target_var)
             total_loss += loss.item()
             total_words += data_var.size(0) * data_var.size(1)
@@ -211,11 +230,10 @@ def main():
     # We load the dataset twice because, while a train and validation split is useful for MLE, we don't want to exclude
     # data points when generating a sample for the discriminator. 
     print("Loading Data ...")
-    pretrain_dataset = BebopTicksDataset(data_dir, train_type=args.train_type, data_format="nums")
+    pretrain_dataset = BebopTicksDataset(data_dir, train_type=args.train_type, data_format="nums", force_reload=True)
+    dataset = copy.deepcopy(pretrain_dataset)
     train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
-    dataset = BebopTicksDataset(data_dir, seq_len=gen_seq_len, train_type=args.train_type, data_format="nums")
     print("Done.")
-    # pdb.set_trace()
 
     # Define Networks
     generator = Generator(VOCAB_SIZE, gen_embed_dim, gen_hidden_dim, args.cuda)
@@ -244,15 +262,20 @@ def main():
         gen_criterion = nn.NLLLoss(size_average=False)
         gen_optimizer = optim.Adam(generator.parameters(), lr=args.gen_learning_rate)
         min_valid_loss = float('inf')
+
         if args.cuda and torch.cuda.is_available():
             gen_criterion = gen_criterion.cuda()
+
         for epoch in range(GEN_PRETRAIN_EPOCHS):
-            train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type)
+            train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type,
+                    pretrain_gen=True)
             pt_gen_train_loss.append(train_loss)
             print('::PRETRAIN GEN:: Epoch [%d] Training Loss: %f'% (epoch, train_loss))
-            valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
+
+            valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type, pretrain_gen=True)
             pt_gen_valid_loss.append(valid_loss)
             print('::PRETRAIN GEN:: Epoch [%d] Validation Loss: %f'% (epoch, valid_loss))
+
             if valid_loss < min_valid_loss:
                 min_valid_loss = valid_loss
                 print('Caching Pretrained Generator ...')

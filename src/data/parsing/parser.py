@@ -28,8 +28,7 @@ def rotate(l, x):
 
 
 class Parser:
-
-    def __init__(self, root_dir=None, json_dir=None, song_dir=None, dataset_dir=None):
+    def __init__(self, root_dir=None, json_dir=None, song_dir=None, dataset_dir=None, dataset_str="bebop"):
         """
         Loads, parses, and formats JSON data into model-ready inputs.
         :param output: the desired parsing format, either "pitch_duration_tokens" or "midi_ticks"
@@ -41,7 +40,7 @@ class Parser:
         self.root_dir, \
         self.json_dir, \
         self.song_dir, \
-        self.dataset_dir = self.verify_directories(root_dir, json_dir, song_dir, dataset_dir)
+        self.dataset_dir = self.verify_directories(root_dir, json_dir, song_dir, dataset_dir, dataset_str)
 
         # Individual file names
         self.json_paths = [op.join(self.json_dir, filename) for filename in os.listdir(self.json_dir)]
@@ -53,7 +52,7 @@ class Parser:
         pass
 
     @staticmethod
-    def verify_directories(root_dir, json_dir, song_dir, dataset_dir):
+    def verify_directories(root_dir, json_dir, song_dir, dataset_dir, dataset_str):
         """
         Ensures that all input/output directories exist.
         :param root_dir: the project directory
@@ -71,7 +70,7 @@ class Parser:
         if json_dir and not op.exists(json_dir):
             raise Exception("JSON directory not found.")
         else:
-            json_dir = op.join(root_dir, 'data', 'interim', 'bebop-json')
+            json_dir = op.join(root_dir, 'data', 'interim', '-'.join([dataset_str, 'json']))
             if not op.exists(json_dir):
                 raise Exception("JSON directory {} not found.".format(json_dir))
 
@@ -79,7 +78,7 @@ class Parser:
         if song_dir and not op.exists(song_dir):
             os.makedirs(song_dir)
         else:
-            song_dir = op.join(root_dir, 'data', 'processed', 'bebop-songs')
+            song_dir = op.join(root_dir, 'data', 'processed', '-'.join([dataset_str, 'songs']))
             if not op.exists(song_dir):
                 os.makedirs(song_dir)
 
@@ -87,9 +86,8 @@ class Parser:
         if dataset_dir and not op.exists(dataset_dir):
             os.makedirs(song_dir)
         else:
-            dataset_dir = op.join(root_dir, 'data', 'processed', 'bebop-datasets')
-            if not op.exists(dataset_dir):
-                os.makedirs(dataset_dir)
+            dataset_dir = op.join(root_dir, 'data', 'processed', '-'.join([dataset_str, 'datasets']))
+            if not op.exists(dataset_dir): os.makedirs(dataset_dir)
 
         return root_dir, json_dir, song_dir, dataset_dir
 
@@ -189,7 +187,7 @@ class Parser:
 
 class TickParser(Parser):
 
-    def __init__(self, root_dir=None, json_dir=None, song_dir=None, dataset_dir=None):
+    def __init__(self, root_dir=None, json_dir=None, song_dir=None, dataset_dir=None, dataset_str=""):
         """
         Loads, parses, and formats JSON data into model-ready inputs.
         :param output: the desired parsing format, either "pitch_duration_tokens" or "midi_ticks"
@@ -198,7 +196,7 @@ class TickParser(Parser):
         :param song_dir: the directory to save parsed individual songs
         :param dataset_dir: the directory to save full datasets
         """
-        super().__init__(root_dir, json_dir, song_dir, dataset_dir)
+        super().__init__(root_dir, json_dir, song_dir, dataset_dir, dataset_str)
         self.ticks = TICKS_PER_BEAT
         self.parse()
 
@@ -463,7 +461,7 @@ class TickParser(Parser):
 
 class PitchDurParser(Parser):
 
-    def __init__(self, root_dir=None, json_dir=None, song_dir=None, dataset_dir=None):
+    def __init__(self, root_dir=None, json_dir=None, song_dir=None, dataset_dir=None, dataset_str=""):
         """
         Loads, parses, and formats JSON data into model-ready inputs.
         :param root_dir: the project directory
@@ -471,7 +469,7 @@ class PitchDurParser(Parser):
         :param song_dir: the directory to save parsed individual songs
         :param dataset_dir: the directory to save full datasets
         """
-        super().__init__(root_dir, json_dir, song_dir, dataset_dir)
+        super().__init__(root_dir, json_dir, song_dir, dataset_dir, dataset_str)
         self.parse()
 
     def parse(self):
@@ -733,14 +731,16 @@ class PitchDurParser(Parser):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", default="midi_ticks", choices=("midi_ticks", "pitch_dur"),
+    parser.add_argument("-o", "--output", default="ticks", choices=("ticks", "pitch_dur"),
                         help="The output format of the processed data.")
-    parser.add_argument("--transpose", default=True,
+    parser.add_argument("-t", "--transpose", action="store_true",
+                        help="Whether or not to transpose the parsed songs into all 12 keys.")
+    parser.add_argument("-d", "--dataset", default="bebop", choices=("bebop", "charlie_parker"), type=str, 
                         help="Whether or not to transpose the parsed songs into all 12 keys.")
     args = parser.parse_args()
 
-    if args.output == "midi_ticks":
-        p = TickParser()
+    if args.output == "ticks":
+        p = TickParser(dataset_str=args.dataset)
     else:
-        p = PitchDurParser()
+        p = PitchDurParser(dataset_str=args.dataset)
     p.save_parsed(transpose=args.transpose)

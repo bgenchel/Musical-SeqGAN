@@ -1,4 +1,6 @@
 import copy
+import json
+import h5py
 import numpy as np
 import os
 import os.path as op
@@ -8,6 +10,7 @@ import sys
 import torch
 from pathlib import Path
 from torch.utils.data.dataset import Dataset
+from tqdm import tqdm
 
 sys.path.append(str(Path(op.abspath(__file__)).parents[1]))
 import constants as const
@@ -29,7 +32,7 @@ class BebopTicksDataset(Dataset):
     a constant division of time.
     """
     def __init__(self, load_dir, measures_per_seq=4, hop_size=4, range_low=A0, range_high=C8, data_format="nums", 
-                 target_type="full_sequence", **kwargs):
+                 target_type="full_sequence", force_reload=True, **kwargs):
         """
         Loads the MIDI tick information, groups into sequences based on measures.
         :param load_dir: location of parsed MusicXML data
@@ -37,66 +40,89 @@ class BebopTicksDataset(Dataset):
         :param hop_size: how many measures to move in time when creating sequences
         :param target_type: if "full_sequence" the target is the full input sequence, if "next_step" the target is
                 the last tick of the input sequence
-        :param format: either numbers (midi numbers) if "nums" or one hot vectors if "vecs"
+        :param range_low: all midi below this number are removed
+        :param range_high: all midi above this number are removed
+        :param data_format: either numbers (midi numbers) if "nums" or one hot vectors if "vecs"
         """
         assert data_format in ("nums", "vecs")
         assert target_type in ("full_sequence", "next_step")
-
         super().__init__()
-        self.measures_per_seq = measures_per_seq
-        self.hop_size = hop_size
-        self.target_type = target_type
-        self.data_format = data_format
 
-        if not op.exists(load_dir):
-            raise Exception("Data directory does not exist.")
+        params = {'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
+                'range_low': range_low, 'range_high': range_high, 'data_format': data_format, 
+                'target_type': target_type}
+        use_cache = False
+        cache_path = op.join(op.dirname(op.abspath(__file__)), 'cache')
+        if op.exists(op.join(cache_path, 'dataset_meta.json')):
+            use_cache = True
+            cache_meta = json.load(open(op.join(cache_path, 'dataset_meta.json'), 'r'))
+            for k, param in params.items():
+                if cache_meta[k] != param:
+                    use_cache = False
+                    break
 
-        self.sequences = self._create_data_dict()
-        self.targets = self._create_data_dict()
+        if use_cache and not force_reload:
+            cached_dataset = pickle.load(open(op.join(cache_path, 'dataset.pkl'), 'rb'))
+            self.sequences = cached_dataset['sequences']
+            self.targets = cached_dataset['targets']
+        else:
+            self.measures_per_seq = measures_per_seq
+            self.hop_size = hop_size
+            self.target_type = target_type
+            self.data_format = data_format
 
-        for fname in os.listdir(load_dir):
-            if op.splitext(fname)[1] != ".pkl":
-                print("Skipping %s..." % fname)
-                continue
+            if not op.exists(load_dir):
+                raise Exception("Data directory does not exist.")
 
-            song = pickle.load(open(op.join(load_dir, fname), "rb"))
+            self.sequences = self._create_data_dict()
+            self.targets = self._create_data_dict()
 
-            # if song["metadata"]["ticks_per_measure"] != 96:
-                # print("Skipping %s because it isn't in 4/4." % fname)
-            if song["metadata"]["time_signature"] != "4/4":
-                print("Skipping %s because it isn't in 4/4." % fname)
+            for fname in tqdm(os.listdir(load_dir)):
+                if op.splitext(fname)[1] != ".pkl":
+                    print("Skipping %s..." % fname)
+                    continue
 
-            full_sequence = self._create_data_dict()
-            for i, measure in enumerate(song["measures"]):
-                for j, group in enumerate(measure["groups"]):
-                    chord_vec = group['harmony']['root'] + group['harmony']['pitch_classes']
-                    harmony = [copy.deepcopy(chord_vec) for _ in range(len(group['ticks']))]
-                    full_sequence[const.CHORD_KEY].extend(harmony)
+                song = pickle.load(open(op.join(load_dir, fname), "rb"))
 
-                    formatted_ticks = []
-                    for tick in group['ticks']:
-                        # make room for rest at the bottom of the range, 
-                        # include the highest range index
-                        formatted = tick[range_low - 1:range_high + 1] 
-                        formatted[0] = tick[0] # translate rest into lowest position of new range
-                        formatted_ticks.append(formatted)
+                # if song["metadata"]["ticks_per_measure"] != 96:
+                    # print("Skipping %s because it isn't in 4/4." % fname)
+                if song["metadata"]["time_signature"] != "4/4":
+                    print("Skipping %s because it isn't in 4/4." % fname)
 
-                    if data_format == "nums":
-                        full_sequence[const.TICK_KEY].extend(list(np.array(formatted_ticks).argmax(axis=1)))
-                    elif data_format == "vecs":
-                        full_sequence[const.TICK_KEY].extend(formatted_ticks)
+                full_sequence = self._create_data_dict()
+                for i, measure in enumerate(song["measures"]):
+                    for j, group in enumerate(measure["groups"]):
+                        chord_vec = group['harmony']['root'] + group['harmony']['pitch_classes']
+                        harmony = [copy.deepcopy(chord_vec) for _ in range(len(group['ticks']))]
+                        full_sequence[const.CHORD_KEY].extend(harmony)
 
-            # print(full_sequence[const.TICK_KEY])
+                        formatted_ticks = []
+                        for tick in group['ticks']:
+                            # make room for rest at the bottom of the range, 
+                            # include the highest range index
+                            formatted = tick[range_low - 1:range_high + 1] 
+                            formatted[0] = tick[0] # translate rest into lowest position of new range
+                            formatted_ticks.append(formatted)
 
-        full_sequence = {k: np.array(v) for k, v in full_sequence.items()} 
-        for k, seq in full_sequence.items():
-            seqs, targets = self._get_seqs_and_targets(seq)
-            self.sequences[k].extend(seqs)
-            self.targets[k].extend(seqs)
+                        if data_format == "nums":
+                            full_sequence[const.TICK_KEY].extend(list(np.array(formatted_ticks).argmax(axis=1)))
+                        elif data_format == "vecs":
+                            full_sequence[const.TICK_KEY].extend(formatted_ticks)
 
-        # pdb.set_trace()
-        print(len(self.sequences))
-        print(len(self.targets))
+                full_sequence = {k: np.array(v) for k, v in full_sequence.items()} 
+                for k, seq in full_sequence.items():
+                    seqs, targets = self._get_seqs_and_targets(seq)
+                    self.sequences[k].extend(seqs)
+                    self.targets[k].extend(seqs)
+
+        with open(op.join(cache_path, 'dataset_meta.json'), 'w') as fp:
+            json.dump({'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
+                    'range_low': range_low, 'range_high': range_high, 'data_format': data_format, 
+                    'target_type': target_type}, fp, indent=4)
+
+        with open(op.join(cache_path, 'dataset.pkl'), 'wb') as fp:
+            pickle.dump({'sequences': self.sequences, 'targets': self.targets}, fp)
+
 
     def _get_seqs_and_targets(self, sequence):
         seqs, targets = [], []
@@ -206,8 +232,6 @@ class BebopTicksDataset(Dataset):
                     continue
                 song = pm.PrettyMIDI(op.join(load_dir, fname))
                 melody = song.instruments[0]
-                piano_roll = melody.get_piano_roll(fs=(1/period))
-                piano_roll = piano_roll[Ab0:C8+1] # paper uses 88 keys, 
                 self._sequence_load(piano_roll)
 
         def _sequence_load(self, piano_roll):
