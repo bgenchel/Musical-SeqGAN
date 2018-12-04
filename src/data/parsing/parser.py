@@ -12,7 +12,7 @@ import argparse
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
 import utils.constants as const
 
-TICKS_PER_BEAT = 24
+TICKS_PER_BEAT = 4
 MIDI_RANGE = 128
 
 

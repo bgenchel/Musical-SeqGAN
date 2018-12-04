@@ -61,11 +61,13 @@ data_dir = op.join(root_dir, "data", "processed", "charlie_parker-songs")
 SEED = 88 # for the randomize
 BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
-NUM_SAMPLES = 30000 # num samples in the data files for training discriminator
+NUM_SAMPLES_PT_GEN = 50000
+NUM_SAMPLES = 10000 # num samples in the data files for training discriminator
 VOCAB_SIZE = 89
 
 # Pretraining Params
-GEN_PRETRAIN_EPOCHS = 120
+# GEN_PRETRAIN_EPOCHS = 120
+GEN_PRETRAIN_EPOCHS = 8
 DSCR_PRETRAIN_DATA_GENS = 10
 DSCR_PRETRAIN_EPOCHS = 6
 
@@ -84,38 +86,30 @@ PT_GEN_MODEL_FILE = op.join(PT_DIR, 'generator.pt')
 PT_DSCR_MODEL_FILE = op.join(PT_DIR, 'discriminator.pt')
 
 # Generator Model Params
-gen_embed_dim = 64
-gen_hidden_dim = 128 # originally 64
+gen_embed_dim = 32
+gen_hidden_dim = 64 # originally 64
 # gen_seq_len = const.TICKS_PER_MEASURE * 4 # generate 4 bars
-gen_seq_len = 24
+gen_seq_len = 32
 
 # Discriminator Model Parameters
 dscr_embed_dim = 128
 dscr_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
 dscr_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
-dscr_dropout = 0.75
+dscr_dropout = 0.5
 dscr_num_classes = 2 
 
 
 # This method allows us to train the model stochastically, as opposed to training over the full dataset, which
 # for nottingham is over 170K samples. Each time we need a new real.data file, we first get
 # a new dataloader using this method, that has a new set of NUM_SAMPLES random samples from the original dataset.
-def get_subset_dataloader(dataset):
+def get_subset_dataloader(dataset, num_samples):
     try:
-        indices = random.sample(range(len(dataset)), NUM_SAMPLES)
+        indices = random.sample(range(len(dataset)), num_samples)
     except ValueError:
         print("Number of samples to generate exceeds dataset size.")
 
     return DataLoader(dataset, batch_size=BATCH_SIZE, sampler=SubsetRandomSampler(indices), drop_last=True)
 
-def get_subset_split_dataloader(dataset):
-    try:
-        subset_dataset, _ = random_split(dataset, [NUM_SAMPLES, len(dataset) - NUM_SAMPLES])
-        # indices = random.sample(range(len(dataset)), NUM_SAMPLES)
-    except ValueError:
-        print("Number of samples to generate exceeds dataset size.")
-
-    return SplitDataLoader(subset_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
 
 # Generates `num_batches` batches of size BATCH_SIZE from the generator. Stores the data in `output_file`
 def create_generated_data_file(model, num_batches, output_file):
@@ -239,8 +233,11 @@ def main():
     # data points when generating a sample for the discriminator. 
     print("Loading Data ...")
     pretrain_dataset = BebopTicksDataset(data_dir, train_type=args.train_type, data_format="nums", force_reload=True)
-    dataset = copy.deepcopy(pretrain_dataset)
     # train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
+    train_size, valid_size = round(len(pretrain_dataset) * 0.85), round(len(pretrain_dataset) * 0.15)
+    train_dataset, valid_dataset = random_split(pretrain_dataset, (train_size, valid_size))
+    valid_loader = DataLoader(valid_dataset, batch_size=BATCH_SIZE * 2, shuffle=True, drop_last=True)
+    dataset = copy.deepcopy(pretrain_dataset)
     print("Done.")
 
     # Define Networks
@@ -275,10 +272,8 @@ def main():
             gen_criterion = gen_criterion.cuda()
 
         for epoch in range(GEN_PRETRAIN_EPOCHS):
-            train_loader, valid_loader = get_subset_split_dataloader(pretrain_dataset)
-
-            train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type,
-                    pretrain_gen=True)
+            train_loader = get_subset_dataloader(train_dataset, NUM_SAMPLES_PT_GEN)
+            train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type, pretrain_gen=True)
             pt_gen_train_loss.append(train_loss)
             print('::PRETRAIN GEN:: Epoch [%d] Training Loss: %f'% (epoch, train_loss))
 
@@ -315,7 +310,7 @@ def main():
             dscr_criterion = dscr_criterion.cuda()
         for i in range(DSCR_PRETRAIN_DATA_GENS):
             print('Creating real and fake datafiles ...')
-            data_loader = get_subset_dataloader(dataset)
+            data_loader = get_subset_dataloader(dataset, NUM_SAMPLES)
             create_generated_data_file(generator, len(data_loader), GEN_FILE)
             create_real_data_file(data_loader, REAL_FILE)
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)
@@ -332,7 +327,7 @@ def main():
                     'datetime': datetime.now().isoformat()}, PT_DSCR_MODEL_FILE)
         torch.save({'losses': pt_dscr_loss}, op.join(PT_DIR, 'discriminator_losses.pt'))
 
-    data_loader = get_subset_dataloader(dataset)
+    data_loader = get_subset_dataloader(dataset, NUM_SAMPLES)
     # create real data file if it doesn't yet exist
     if not op.exists(REAL_FILE):
         print('Creating real data file...')
@@ -405,7 +400,6 @@ def main():
 
             # Check how our MLE validation changes with GAN loss. We've noticed it going up, but are unsure
             # if this is a good metric by which to validate for this type of training.
-            _, valid_loader = get_subset_split_dataloader(pretrain_dataset)
             valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
             print('Adv Epoch [%d], Gen Step [%d] - Valid Loss: %f' % (epoch, gstep, valid_loss))
 
@@ -417,7 +411,7 @@ def main():
         # Train the Discriminator for `D_STEPS` each on `D_DATA_GENS` sets of generated and sampled real data
         total_dscr_loss = 0.0
         for data_gen in range(D_DATA_GENS):
-            data_loader = get_subset_dataloader(dataset)
+            data_loader = get_subset_dataloader(dataset, NUM_SAMPLES)
             create_generated_data_file(generator, len(data_loader), GEN_FILE)
             create_real_data_file(data_loader, GEN_FILE)
             dscr_data_iter = DataLoader(DscrDataset(REAL_FILE, GEN_FILE), batch_size=BATCH_SIZE, shuffle=True)

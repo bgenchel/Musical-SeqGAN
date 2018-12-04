@@ -25,7 +25,7 @@ A0 = 21 # gonna swith over to adding the zero explicitly
 C8 = 108
 
 NOTE_TICK_LENGTH = 89
-SEQ_LEN = 24
+SEQ_LEN = 32
 
 class BebopTicksDataset(Dataset):
     """
@@ -78,6 +78,7 @@ class BebopTicksDataset(Dataset):
         self.sequences = self._create_data_dict()
         self.targets = self._create_data_dict()
 
+        file_count = 0
         for fname in tqdm(os.listdir(load_dir)):
             if op.splitext(fname)[1] != ".pkl":
                 print("Skipping %s..." % fname)
@@ -89,6 +90,7 @@ class BebopTicksDataset(Dataset):
                 # print("Skipping %s because it isn't in 4/4." % fname)
             if song["metadata"]["time_signature"] != "4/4":
                 print("Skipping %s because it isn't in 4/4." % fname)
+                continue
 
             full_sequence = self._create_data_dict()
             for i, measure in enumerate(song["measures"]):
@@ -116,7 +118,15 @@ class BebopTicksDataset(Dataset):
                 self.sequences[k].extend(seqs)
                 self.targets[k].extend(seqs)
 
+            file_count += 1
+
         # pdb.set_trace()
+        print('len(self.sequences): {}'.format(len(self.sequences[const.TICK_KEY])))
+        print('len(self.targets): {}'.format(len(self.targets[const.TICK_KEY])))
+        print('len of individual sequence: {}'.format(len(self.sequences[const.TICK_KEY][0])))
+        print('len of individual target: {}'.format(len(self.targets[const.TICK_KEY][0])))
+        print('processed {} files.'.format(file_count))
+
 
         # with open(op.join(cache_path, 'dataset_meta.json'), 'w') as fp:
         #     json.dump({'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
