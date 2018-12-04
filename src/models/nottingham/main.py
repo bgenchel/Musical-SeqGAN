@@ -145,10 +145,12 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type):
             data_var, target_var = data_var.cuda(), target_var.cuda()
         target_var = target_var.contiguous().view(-1)
         pred = model.forward(data_var)
+
         if train_type == "full_sequence":
             pred = pred.view(-1, pred.size()[-1])
         elif train_type == "next_step":
             pred = pred[:, -1, :]
+
         loss = loss_fn(pred, target_var)
         total_loss += loss.item()
         total_words += data_var.size(0) * data_var.size(1)

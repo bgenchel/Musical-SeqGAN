@@ -7,10 +7,11 @@ import os
 import os.path as op
 import numpy as np
 import pathlib
-import src
+import sys
 import torch
+from pathlib import Path
 
-src.path.append(str(Path(__file__).parents[2]))
+sys.path.append(str(Path(__file__).parents[2]))
 from utils.reverse_pianoroll import piano_roll_to_pretty_midi
 
 def main():

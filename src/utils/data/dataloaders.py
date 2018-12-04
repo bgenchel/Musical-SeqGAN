@@ -1,10 +1,11 @@
 import numpy as np
+import random
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
 class SplitDataLoader(DataLoader):
     """
-    DataLoader that can optionally split the interal dataset and return multiple dataloaders
+    DataLoader that can optionally split the internal dataset and return multiple dataloaders
     """
     def __init__(self, dataset, batch_size=32, **kwargs):
         self.dataset = dataset

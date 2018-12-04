@@ -25,6 +25,7 @@ A0 = 21 # gonna swith over to adding the zero explicitly
 C8 = 108
 
 NOTE_TICK_LENGTH = 89
+SEQ_LEN = 24
 
 class BebopTicksDataset(Dataset):
     """
@@ -48,85 +49,88 @@ class BebopTicksDataset(Dataset):
         assert target_type in ("full_sequence", "next_step")
         super().__init__()
 
-        params = {'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
-                'range_low': range_low, 'range_high': range_high, 'data_format': data_format, 
-                'target_type': target_type}
-        use_cache = False
-        cache_path = op.join(op.dirname(op.abspath(__file__)), 'cache')
-        if op.exists(op.join(cache_path, 'dataset_meta.json')):
-            use_cache = True
-            cache_meta = json.load(open(op.join(cache_path, 'dataset_meta.json'), 'r'))
-            for k, param in params.items():
-                if cache_meta[k] != param:
-                    use_cache = False
-                    break
+        # params = {'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
+        #         'range_low': range_low, 'range_high': range_high, 'data_format': data_format, 
+        #         'target_type': target_type}
+        # use_cache = False
+        # cache_path = op.join(op.dirname(op.abspath(__file__)), 'cache')
+        # if op.exists(op.join(cache_path, 'dataset_meta.json')):
+        #     use_cache = True
+        #     cache_meta = json.load(open(op.join(cache_path, 'dataset_meta.json'), 'r'))
+        #     for k, param in params.items():
+        #         if cache_meta[k] != param:
+        #             use_cache = False
+        #             break
 
-        if use_cache and not force_reload:
-            cached_dataset = pickle.load(open(op.join(cache_path, 'dataset.pkl'), 'rb'))
-            self.sequences = cached_dataset['sequences']
-            self.targets = cached_dataset['targets']
-        else:
-            self.measures_per_seq = measures_per_seq
-            self.hop_size = hop_size
-            self.target_type = target_type
-            self.data_format = data_format
+        # if use_cache and not force_reload:
+        #     cached_dataset = pickle.load(open(op.join(cache_path, 'dataset.pkl'), 'rb'))
+        #     self.sequences = cached_dataset['sequences']
+        #     self.targets = cached_dataset['targets']
+        # else:
+        self.measures_per_seq = measures_per_seq
+        self.hop_size = hop_size
+        self.target_type = target_type
+        self.data_format = data_format
 
-            if not op.exists(load_dir):
-                raise Exception("Data directory does not exist.")
+        if not op.exists(load_dir):
+            raise Exception("Data directory does not exist.")
 
-            self.sequences = self._create_data_dict()
-            self.targets = self._create_data_dict()
+        self.sequences = self._create_data_dict()
+        self.targets = self._create_data_dict()
 
-            for fname in tqdm(os.listdir(load_dir)):
-                if op.splitext(fname)[1] != ".pkl":
-                    print("Skipping %s..." % fname)
-                    continue
+        for fname in tqdm(os.listdir(load_dir)):
+            if op.splitext(fname)[1] != ".pkl":
+                print("Skipping %s..." % fname)
+                continue
 
-                song = pickle.load(open(op.join(load_dir, fname), "rb"))
+            song = pickle.load(open(op.join(load_dir, fname), "rb"))
 
-                # if song["metadata"]["ticks_per_measure"] != 96:
-                    # print("Skipping %s because it isn't in 4/4." % fname)
-                if song["metadata"]["time_signature"] != "4/4":
-                    print("Skipping %s because it isn't in 4/4." % fname)
+            # if song["metadata"]["ticks_per_measure"] != 96:
+                # print("Skipping %s because it isn't in 4/4." % fname)
+            if song["metadata"]["time_signature"] != "4/4":
+                print("Skipping %s because it isn't in 4/4." % fname)
 
-                full_sequence = self._create_data_dict()
-                for i, measure in enumerate(song["measures"]):
-                    for j, group in enumerate(measure["groups"]):
-                        chord_vec = group['harmony']['root'] + group['harmony']['pitch_classes']
-                        harmony = [copy.deepcopy(chord_vec) for _ in range(len(group['ticks']))]
-                        full_sequence[const.CHORD_KEY].extend(harmony)
+            full_sequence = self._create_data_dict()
+            for i, measure in enumerate(song["measures"]):
+                for j, group in enumerate(measure["groups"]):
+                    chord_vec = group['harmony']['root'] + group['harmony']['pitch_classes']
+                    harmony = [copy.deepcopy(chord_vec) for _ in range(len(group['ticks']))]
+                    full_sequence[const.CHORD_KEY].extend(harmony)
 
-                        formatted_ticks = []
-                        for tick in group['ticks']:
-                            # make room for rest at the bottom of the range, 
-                            # include the highest range index
-                            formatted = tick[range_low - 1:range_high + 1] 
-                            formatted[0] = tick[0] # translate rest into lowest position of new range
-                            formatted_ticks.append(formatted)
+                    formatted_ticks = []
+                    for tick in group['ticks']:
+                        # make room for rest at the bottom of the range, 
+                        # include the highest range index
+                        formatted = tick[range_low - 1:range_high + 1] 
+                        formatted[0] = tick[0] # translate rest into lowest position of new range
+                        formatted_ticks.append(formatted)
 
-                        if data_format == "nums":
-                            full_sequence[const.TICK_KEY].extend(list(np.array(formatted_ticks).argmax(axis=1)))
-                        elif data_format == "vecs":
-                            full_sequence[const.TICK_KEY].extend(formatted_ticks)
+                    if data_format == "nums":
+                        full_sequence[const.TICK_KEY].extend(list(np.array(formatted_ticks).argmax(axis=1)))
+                    elif data_format == "vecs":
+                        full_sequence[const.TICK_KEY].extend(formatted_ticks)
 
-                full_sequence = {k: np.array(v) for k, v in full_sequence.items()} 
-                for k, seq in full_sequence.items():
-                    seqs, targets = self._get_seqs_and_targets(seq)
-                    self.sequences[k].extend(seqs)
-                    self.targets[k].extend(seqs)
+            full_sequence = {k: np.array(v) for k, v in full_sequence.items()} 
+            for k, seq in full_sequence.items():
+                seqs, targets = self._get_seqs_and_targets(seq)
+                self.sequences[k].extend(seqs)
+                self.targets[k].extend(seqs)
 
-        with open(op.join(cache_path, 'dataset_meta.json'), 'w') as fp:
-            json.dump({'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
-                    'range_low': range_low, 'range_high': range_high, 'data_format': data_format, 
-                    'target_type': target_type}, fp, indent=4)
+        # pdb.set_trace()
 
-        with open(op.join(cache_path, 'dataset.pkl'), 'wb') as fp:
-            pickle.dump({'sequences': self.sequences, 'targets': self.targets}, fp)
+        # with open(op.join(cache_path, 'dataset_meta.json'), 'w') as fp:
+        #     json.dump({'load_dir': load_dir, 'measures_per_seq': measures_per_seq, 'hop_size': hop_size, 
+        #             'range_low': range_low, 'range_high': range_high, 'data_format': data_format, 
+        #             'target_type': target_type}, fp, indent=4)
+
+        # with open(op.join(cache_path, 'dataset.pkl'), 'wb') as fp:
+        #     pickle.dump({'sequences': self.sequences, 'targets': self.targets}, fp)
 
 
     def _get_seqs_and_targets(self, sequence):
         seqs, targets = [], []
-        seq_len = self.measures_per_seq * const.TICKS_PER_MEASURE
+        # seq_len = self.measures_per_seq * const.TICKS_PER_MEASURE
+        seq_len = SEQ_LEN
         if len(sequence.shape) == 1:
             padding = np.zeros((seq_len))
         else:

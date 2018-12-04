@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from datetime import datetime
 from pathlib import Path
 from torch.autograd import Variable
-from torch.utils.data import DataLoader, SubsetRandomSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler, random_split
 from tqdm import tqdm
 
 from generator import Generator
@@ -61,7 +61,7 @@ data_dir = op.join(root_dir, "data", "processed", "charlie_parker-songs")
 SEED = 88 # for the randomize
 BATCH_SIZE = 128
 GAN_TRAIN_EPOCHS = 200 # number of adversarial training epochs
-NUM_SAMPLES = 5000 # num samples in the data files for training discriminator
+NUM_SAMPLES = 30000 # num samples in the data files for training discriminator
 VOCAB_SIZE = 89
 
 # Pretraining Params
@@ -86,7 +86,8 @@ PT_DSCR_MODEL_FILE = op.join(PT_DIR, 'discriminator.pt')
 # Generator Model Params
 gen_embed_dim = 64
 gen_hidden_dim = 128 # originally 64
-gen_seq_len = const.TICKS_PER_MEASURE * 4 # generate 4 bars
+# gen_seq_len = const.TICKS_PER_MEASURE * 4 # generate 4 bars
+gen_seq_len = 24
 
 # Discriminator Model Parameters
 dscr_embed_dim = 128
@@ -107,6 +108,14 @@ def get_subset_dataloader(dataset):
 
     return DataLoader(dataset, batch_size=BATCH_SIZE, sampler=SubsetRandomSampler(indices), drop_last=True)
 
+def get_subset_split_dataloader(dataset):
+    try:
+        subset_dataset, _ = random_split(dataset, [NUM_SAMPLES, len(dataset) - NUM_SAMPLES])
+        # indices = random.sample(range(len(dataset)), NUM_SAMPLES)
+    except ValueError:
+        print("Number of samples to generate exceeds dataset size.")
+
+    return SplitDataLoader(subset_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
 
 # Generates `num_batches` batches of size BATCH_SIZE from the generator. Stores the data in `output_file`
 def create_generated_data_file(model, num_batches, output_file):
@@ -152,8 +161,7 @@ def train_epoch(model, data_iter, loss_fn, optimizer, train_type, pretrain_gen=F
             data_var = Variable(data)
             target_var = Variable(target)
 
-        pdb.set_trace()
-
+        # pdb.set_trace()
         if args.cuda and torch.cuda.is_available():
             data_var, target_var = data_var.cuda(), target_var.cuda()
 
@@ -232,7 +240,7 @@ def main():
     print("Loading Data ...")
     pretrain_dataset = BebopTicksDataset(data_dir, train_type=args.train_type, data_format="nums", force_reload=True)
     dataset = copy.deepcopy(pretrain_dataset)
-    train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
+    # train_loader, valid_loader = SplitDataLoader(pretrain_dataset, batch_size=BATCH_SIZE, drop_last=True).split()
     print("Done.")
 
     # Define Networks
@@ -267,6 +275,8 @@ def main():
             gen_criterion = gen_criterion.cuda()
 
         for epoch in range(GEN_PRETRAIN_EPOCHS):
+            train_loader, valid_loader = get_subset_split_dataloader(pretrain_dataset)
+
             train_loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer, args.train_type,
                     pretrain_gen=True)
             pt_gen_train_loss.append(train_loss)
@@ -395,6 +405,7 @@ def main():
 
             # Check how our MLE validation changes with GAN loss. We've noticed it going up, but are unsure
             # if this is a good metric by which to validate for this type of training.
+            _, valid_loader = get_subset_split_dataloader(pretrain_dataset)
             valid_loss = eval_epoch(generator, valid_loader, gen_criterion, args.train_type)
             print('Adv Epoch [%d], Gen Step [%d] - Valid Loss: %f' % (epoch, gstep, valid_loss))
 

@@ -10,14 +10,14 @@ import argparse
 import pdb
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
 from make_music import sequence_to_midi
-from data.parsing.datasets import NottinghamDataset
+from utils.data.datasets import BebopTicksDataset 
 from evaluation.bleu import BleuScore
 from generator import Generator
 
 VOCAB_SIZE = 89
 EMBED_DIM = 64
 HIDDEN_DIM = 128
-SEQ_LEN = 32
+SEQ_LEN = 24
 BATCH_SIZE = 128
 
 def listify(tensor):
@@ -68,7 +68,7 @@ def get_predictions():
     :return:
     """
     print("Loading Data ... ")
-    dataset = NottinghamDataset('../../../data/raw/nottingham-midi', seq_len=SEQ_LEN, data_format="nums")
+    dataset = BebopTicksDataset('../../../data/processed/charlie_parker-songs', seq_len=SEQ_LEN, data_format="nums")
     dataloader = DataLoader(dataset, batch_size=128, drop_last=True, shuffle=True)
     pretrained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=True)
     pretrained.cuda()
@@ -76,7 +76,7 @@ def get_predictions():
     fully_trained = Generator(VOCAB_SIZE, EMBED_DIM, HIDDEN_DIM, use_cuda=True)
 
     # Change this to the desired adversarial run
-    best_run = 'Nov28-18_15:40:28'
+    best_run = 'Dec03-18_22:21:30'
     fully_trained.load_state_dict(torch.load(op.join('runs', best_run, 'generator_state.pt'), map_location='cpu'))
     fully_trained.cuda()
 
@@ -86,8 +86,8 @@ def get_predictions():
     print("Generating Predictions ... ")
     for (data, target) in tqdm(dataloader):
         if torch.cuda.is_available():
-            data = data.cuda()
-            target = target.cuda()
+            data = data["ticks"].cuda()
+            target = target["ticks"].cuda()
         pt_pred = pretrained.forward(data).argmax(2)
         ft_pred = fully_trained.forward(data).argmax(2)
         pt_preds.extend(listify(pt_pred))
