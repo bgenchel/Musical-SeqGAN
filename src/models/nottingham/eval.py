@@ -10,7 +10,7 @@ import argparse
 import pdb
 sys.path.append(str(Path(op.abspath(__file__)).parents[2]))
 from make_music import sequence_to_midi
-from data.parsing.datasets import NottinghamDataset
+from utils.data.datasets import NottinghamDataset
 from evaluation.bleu import BleuScore
 from generator import Generator
 
