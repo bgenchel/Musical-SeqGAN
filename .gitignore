@@ -8,3 +8,7 @@ __pycache__
 # data code
 /data
 *.data
+*.zip
+.ipynb_checkpoints
+eval_midi
+*.pdf
